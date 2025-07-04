@@ -1,91 +1,148 @@
-// Package main demonstrates how to use the GPA framework with GORM adapter
+// Package main demonstrates how to use the GPA framework with MongoDB adapter
 package main
 
 import (
 	"context"
 	"fmt"
-	"github.com/lemmego/gpa/gpagorm"
 	"log"
 	"time"
 
 	"github.com/lemmego/gpa"
+	"github.com/lemmego/gpa/gpamongo"
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // =====================================
-// Domain Models
+// Domain Models with MongoDB Tags
 // =====================================
 
-// User represents a user entity
+// User represents a user entity for MongoDB
 type User struct {
-	ID        uint      `gorm:"primaryKey" json:"id"`
-	Email     string    `gorm:"uniqueIndex;size:255;not null" json:"email"`
-	Name      string    `gorm:"size:100;not null" json:"name"`
-	Age       int       `gorm:"not null" json:"age"`
-	Status    string    `gorm:"size:20;default:'active'" json:"status"`
-	CreatedAt time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Email     string             `bson:"email" json:"email"`
+	Name      string             `bson:"name" json:"name"`
+	Age       int                `bson:"age" json:"age"`
+	Status    string             `bson:"status" json:"status"`
+	Profile   UserProfile        `bson:"profile" json:"profile"`
+	Tags      []string           `bson:"tags,omitempty" json:"tags,omitempty"`
+	Metadata  map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
 
-	// Relationships
-	Orders []Order `gorm:"foreignKey:UserID" json:"orders,omitempty"`
+	// Relationships (embedded or referenced)
+	Orders []Order `bson:"orders,omitempty" json:"orders,omitempty"`
 }
 
-// Order represents an order entity
+func (u User) CollectionName() string { return "users" }
+
+// UserProfile represents nested user profile data
+type UserProfile struct {
+	Bio        string   `bson:"bio,omitempty" json:"bio,omitempty"`
+	Avatar     string   `bson:"avatar,omitempty" json:"avatar,omitempty"`
+	Interests  []string `bson:"interests,omitempty" json:"interests,omitempty"`
+	Location   Location `bson:"location,omitempty" json:"location,omitempty"`
+	Verified   bool     `bson:"verified" json:"verified"`
+}
+
+// Location represents geographical location
+type Location struct {
+	Country   string  `bson:"country,omitempty" json:"country,omitempty"`
+	City      string  `bson:"city,omitempty" json:"city,omitempty"`
+	Latitude  float64 `bson:"latitude,omitempty" json:"latitude,omitempty"`
+	Longitude float64 `bson:"longitude,omitempty" json:"longitude,omitempty"`
+}
+
+// Order represents an order entity for MongoDB
 type Order struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	UserID      uint      `gorm:"not null;index" json:"user_id"`
-	ProductName string    `gorm:"size:255;not null" json:"product_name"`
-	Amount      float64   `gorm:"type:decimal(10,2);not null" json:"amount"`
-	Status      string    `gorm:"size:20;default:'pending'" json:"status"`
-	OrderDate   time.Time `gorm:"not null" json:"order_date"`
-	CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
-
-	// Relationships
-	User User `gorm:"foreignKey:UserID" json:"user,omitempty"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID      primitive.ObjectID `bson:"user_id" json:"user_id"`
+	ProductName string             `bson:"product_name" json:"product_name"`
+	Amount      float64            `bson:"amount" json:"amount"`
+	Currency    string             `bson:"currency" json:"currency"`
+	Status      string             `bson:"status" json:"status"`
+	Items       []OrderItem        `bson:"items" json:"items"`
+	ShippingAddress Address        `bson:"shipping_address" json:"shipping_address"`
+	OrderDate   time.Time          `bson:"order_date" json:"order_date"`
+	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
-// Product represents a product entity
+func (o Order) CollectionName() string { return "orders" }
+
+// OrderItem represents an item within an order
+type OrderItem struct {
+	ProductID primitive.ObjectID `bson:"product_id" json:"product_id"`
+	Name      string             `bson:"name" json:"name"`
+	Quantity  int                `bson:"quantity" json:"quantity"`
+	Price     float64            `bson:"price" json:"price"`
+}
+
+// Address represents a shipping address
+type Address struct {
+	Street   string `bson:"street" json:"street"`
+	City     string `bson:"city" json:"city"`
+	State    string `bson:"state" json:"state"`
+	ZipCode  string `bson:"zip_code" json:"zip_code"`
+	Country  string `bson:"country" json:"country"`
+}
+
+// Product represents a product entity for MongoDB
 type Product struct {
-	ID          uint      `gorm:"primaryKey" json:"id"`
-	Name        string    `gorm:"size:255;not null;index" json:"name"`
-	Description string    `gorm:"type:text" json:"description"`
-	Price       float64   `gorm:"type:decimal(10,2);not null" json:"price"`
-	Stock       int       `gorm:"not null;default:0" json:"stock"`
-	CategoryID  uint      `gorm:"not null;index" json:"category_id"`
-	IsActive    bool      `gorm:"default:true" json:"is_active"`
-	CreatedAt   time.Time `gorm:"autoCreateTime" json:"created_at"`
-	UpdatedAt   time.Time `gorm:"autoUpdateTime" json:"updated_at"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Name        string             `bson:"name" json:"name"`
+	Description string             `bson:"description" json:"description"`
+	Price       float64            `bson:"price" json:"price"`
+	Currency    string             `bson:"currency" json:"currency"`
+	Stock       int                `bson:"stock" json:"stock"`
+	Category    string             `bson:"category" json:"category"`
+	Tags        []string           `bson:"tags,omitempty" json:"tags,omitempty"`
+	Images      []string           `bson:"images,omitempty" json:"images,omitempty"`
+	Attributes  map[string]interface{} `bson:"attributes,omitempty" json:"attributes,omitempty"`
+	IsActive    bool               `bson:"is_active" json:"is_active"`
+	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
-// Category represents a product category
+func (p Product) CollectionName() string { return "products" }
+
+// Category represents a product category for MongoDB
 type Category struct {
-	ID       uint   `gorm:"primaryKey" json:"id"`
-	Name     string `gorm:"size:100;not null;uniqueIndex" json:"name"`
-	ParentID *uint  `gorm:"index" json:"parent_id,omitempty"`
-
-	// Self-referencing relationship
-	Parent   *Category  `gorm:"foreignKey:ParentID" json:"parent,omitempty"`
-	Children []Category `gorm:"foreignKey:ParentID" json:"children,omitempty"`
-	Products []Product  `gorm:"foreignKey:CategoryID" json:"products,omitempty"`
+	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	Name        string             `bson:"name" json:"name"`
+	Description string             `bson:"description,omitempty" json:"description,omitempty"`
+	ParentID    *primitive.ObjectID `bson:"parent_id,omitempty" json:"parent_id,omitempty"`
+	Path        []string           `bson:"path" json:"path"` // For hierarchical categories
+	Level       int                `bson:"level" json:"level"`
+	IsActive    bool               `bson:"is_active" json:"is_active"`
+	Metadata    map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
+	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
 }
+
+func (c Category) CollectionName() string { return "categories" }
 
 // =====================================
-// Service Layer
+// Service Layer for MongoDB
 // =====================================
 
 // UserService provides business logic for user operations
 type UserService struct {
-	userRepo  gpa.Repository
-	orderRepo gpa.Repository
-	provider  gpa.Provider
+	userRepo     gpa.Repository
+	orderRepo    gpa.Repository
+	productRepo  gpa.Repository
+	categoryRepo gpa.Repository
+	provider     gpa.Provider
 }
 
 // NewUserService creates a new user service
 func NewUserService(provider gpa.Provider) *UserService {
 	return &UserService{
-		userRepo:  provider.RepositoryFor(&User{}),
-		orderRepo: provider.RepositoryFor(&Order{}),
-		provider:  provider,
+		userRepo:     provider.RepositoryFor(&User{}),
+		orderRepo:    provider.RepositoryFor(&Order{}),
+		productRepo:  provider.RepositoryFor(&Product{}),
+		categoryRepo: provider.RepositoryFor(&Category{}),
+		provider:     provider,
 	}
 }
 
@@ -116,12 +173,18 @@ func (s *UserService) CreateUser(ctx context.Context, user *User) error {
 	user.Status = "active"
 	user.CreatedAt = time.Now()
 	user.UpdatedAt = time.Now()
+	if user.Tags == nil {
+		user.Tags = []string{}
+	}
+	if user.Metadata == nil {
+		user.Metadata = make(map[string]interface{})
+	}
 
 	return s.userRepo.Create(ctx, user)
 }
 
 // GetUserByID retrieves a user by ID
-func (s *UserService) GetUserByID(ctx context.Context, userID uint) (*User, error) {
+func (s *UserService) GetUserByID(ctx context.Context, userID primitive.ObjectID) (*User, error) {
 	var user User
 	err := s.userRepo.FindByID(ctx, userID, &user)
 	if err != nil {
@@ -145,15 +208,16 @@ func (s *UserService) GetActiveUsers(ctx context.Context, limit, offset int) ([]
 	return users, nil
 }
 
-// SearchUsers searches users by name or email
+// SearchUsers searches users by name, email, or tags
 func (s *UserService) SearchUsers(ctx context.Context, query string) ([]User, error) {
 	var users []User
 
-	// Create composite condition for searching - Method 1: Using OrOption
+	// MongoDB supports more flexible text search
 	err := s.userRepo.Query(ctx, &users,
 		gpa.OrOption(
-			gpa.WhereCondition("name", gpa.OpLike, "%"+query+"%"),
-			gpa.WhereCondition("email", gpa.OpLike, "%"+query+"%"),
+			gpa.WhereCondition("name", gpa.OpRegex, "(?i)"+query), // Case-insensitive regex
+			gpa.WhereCondition("email", gpa.OpRegex, "(?i)"+query),
+			gpa.WhereCondition("tags", gpa.OpIn, []string{query}), // Search in tags array
 		),
 		gpa.Where("status", gpa.OpEqual, "active"),
 		gpa.OrderBy("name", gpa.OrderAsc),
@@ -165,243 +229,192 @@ func (s *UserService) SearchUsers(ctx context.Context, query string) ([]User, er
 	return users, nil
 }
 
-// UpdateUserStatus updates a user's status
-func (s *UserService) UpdateUserStatus(ctx context.Context, userID uint, status string) error {
-	return s.userRepo.UpdatePartial(ctx, userID, map[string]interface{}{
-		"status":     status,
+// UpdateUserProfile updates a user's profile using MongoDB's nested document updates
+func (s *UserService) UpdateUserProfile(ctx context.Context, userID primitive.ObjectID, profile UserProfile) error {
+	updates := map[string]interface{}{
+		"profile":    profile,
 		"updated_at": time.Now(),
-	})
-}
-
-// GetUserWithOrders retrieves a user with their orders using preloading
-func (s *UserService) GetUserWithOrders(ctx context.Context, userID uint) (*User, error) {
-	var user User
-
-	// Method 1: Using preloading (recommended for GORM)
-	err := s.userRepo.Query(ctx, &user,
-		gpa.Where("id", gpa.OpEqual, userID),
-		gpa.Preload("Orders"), // Preload the Orders relationship
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user with orders: %w", err)
 	}
-
-	return &user, nil
+	return s.userRepo.UpdatePartial(ctx, userID, updates)
 }
 
-// GetUserWithOrdersAndDetails retrieves a user with orders and nested relationships
-func (s *UserService) GetUserWithOrdersAndDetails(ctx context.Context, userID uint) (*User, error) {
-	var user User
-
-	// Preload multiple levels of relationships
-	err := s.userRepo.Query(ctx, &user,
-		gpa.Where("id", gpa.OpEqual, userID),
-		gpa.Preload("Orders"),      // Load user's orders
-		gpa.Preload("Orders.User"), // Load user info in each order (if needed)
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user with detailed orders: %w", err)
-	}
-
-	return &user, nil
-}
-
-// GetUsersWithRecentOrders gets users with their recent orders using joins
-func (s *UserService) GetUsersWithRecentOrders(ctx context.Context, days int) ([]User, error) {
-	var users []User
-
-	// Method 2: Using joins for filtering
-	cutoffDate := time.Now().AddDate(0, 0, -days)
-
-	err := s.userRepo.Query(ctx, &users,
-		gpa.Join(gpa.JoinInner, "orders", "orders.user_id = users.id"),
-		gpa.Where("orders.order_date", gpa.OpGreaterThan, cutoffDate),
-		gpa.Where("users.status", gpa.OpEqual, "active"),
-		gpa.Preload("Orders"), // Still preload to get all orders for each user
-		gpa.OrderBy("users.name", gpa.OrderAsc),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get users with recent orders: %w", err)
-	}
-
-	return users, nil
-}
-
-// ManageUserOrders demonstrates association management
-func (s *UserService) ManageUserOrders(ctx context.Context, userID uint) error {
-	// Get the user first
+// AddUserTag adds a tag to a user's tags array
+func (s *UserService) AddUserTag(ctx context.Context, userID primitive.ObjectID, tag string) error {
+	// For now, use standard update operations
+	// Fetch current user first
 	var user User
 	err := s.userRepo.FindByID(ctx, userID, &user)
 	if err != nil {
 		return fmt.Errorf("failed to find user: %w", err)
 	}
+	
+	// Check if tag already exists
+	for _, existingTag := range user.Tags {
+		if existingTag == tag {
+			return nil // Tag already exists
+		}
+	}
+	
+	// Add tag to the slice
+	user.Tags = append(user.Tags, tag)
+	user.UpdatedAt = time.Now()
+	
+	return s.userRepo.Update(ctx, &user)
+}
 
-	// Get GORM repository to access association methods
-	if gormRepo, ok := s.userRepo.(*gpagorm.Repository); ok {
-		// Get association manager for Orders
-		ordersAssoc := gormRepo.Association(ctx, &user, "Orders")
+// GetUsersByLocation finds users near a location using MongoDB geospatial queries
+func (s *UserService) GetUsersByLocation(ctx context.Context, lat, lon float64, maxDistance float64) ([]User, error) {
+	if mongoRepo, ok := s.userRepo.(*gpamongo.Repository); ok {
+		// Use MongoDB aggregation for geospatial search
+		pipeline := []map[string]interface{}{
+			{
+				"$match": map[string]interface{}{
+					"profile.location": map[string]interface{}{
+						"$near": map[string]interface{}{
+							"$geometry": map[string]interface{}{
+								"type":        "Point",
+								"coordinates": []float64{lon, lat},
+							},
+							"$maxDistance": maxDistance,
+						},
+					},
+					"status": "active",
+				},
+			},
+			{"$limit": 50},
+		}
 
-		// Count existing orders
-		count, err := ordersAssoc.Count()
+		var users []User
+		err := mongoRepo.Aggregate(ctx, pipeline, &users)
 		if err != nil {
-			return fmt.Errorf("failed to count orders: %w", err)
+			return nil, fmt.Errorf("failed geospatial search: %w", err)
 		}
-		fmt.Printf("User %d has %d orders\n", userID, count)
-
-		// Add a new order
-		newOrder := &Order{
-			ProductName: "New Product",
-			Amount:      199.99,
-			Status:      "pending",
-			OrderDate:   time.Now(),
-		}
-
-		err = ordersAssoc.Append(newOrder)
-		if err != nil {
-			return fmt.Errorf("failed to add order: %w", err)
-		}
-
-		fmt.Printf("Added new order with ID: %d\n", newOrder.ID)
+		return users, nil
 	}
 
-	return nil
+	return nil, gpa.GPAError{
+		Type:    gpa.ErrorTypeUnsupported,
+		Message: "geospatial queries not supported",
+	}
 }
 
 // =====================================
-// Relationship Examples
+// MongoDB-Specific Aggregation Examples
 // =====================================
 
-// runRelationshipExamples demonstrates relationship usage
-func runRelationshipExamples(ctx context.Context, app *App) error {
-	userRepo := app.provider.RepositoryFor(&User{})
-	orderRepo := app.provider.RepositoryFor(&Order{})
-
-	fmt.Println("1. Preloading relationships...")
-
-	// Find users with their orders preloaded
-	var usersWithOrders []User
-	err := userRepo.Query(ctx, &usersWithOrders,
-		gpa.Where("status", gpa.OpEqual, "active"),
-		gpa.Preload("Orders"), // Preload Orders relationship
-		gpa.Limit(3),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to preload orders: %w", err)
-	}
-
-	fmt.Printf("Found %d users with preloaded orders:\n", len(usersWithOrders))
-	for _, user := range usersWithOrders {
-		fmt.Printf("  - %s has %d orders\n", user.Name, len(user.Orders))
-		for _, order := range user.Orders {
-			fmt.Printf("    * Order #%d: %s ($%.2f)\n", order.ID, order.ProductName, order.Amount)
+// GetUserStatistics returns user statistics using MongoDB aggregation
+func (s *UserService) GetUserStatistics(ctx context.Context) (map[string]interface{}, error) {
+	if mongoRepo, ok := s.userRepo.(*gpamongo.Repository); ok {
+		pipeline := []map[string]interface{}{
+			{
+				"$group": map[string]interface{}{
+					"_id": nil,
+					"total_users": map[string]interface{}{
+						"$sum": 1,
+					},
+					"active_users": map[string]interface{}{
+						"$sum": map[string]interface{}{
+							"$cond": []interface{}{
+								map[string]interface{}{"$eq": []string{"$status", "active"}},
+								1,
+								0,
+							},
+						},
+					},
+					"average_age": map[string]interface{}{
+						"$avg": "$age",
+					},
+					"age_distribution": map[string]interface{}{
+						"$push": "$age",
+					},
+				},
+			},
 		}
-	}
 
-	// Find specific user with orders
-	fmt.Println("\n2. Getting specific user with orders...")
-	if len(usersWithOrders) > 0 {
-		userWithOrders, err := app.userService.GetUserWithOrders(ctx, usersWithOrders[0].ID)
+		var results []map[string]interface{}
+		err := mongoRepo.Aggregate(ctx, pipeline, &results)
 		if err != nil {
-			return fmt.Errorf("failed to get user with orders: %w", err)
-		}
-		fmt.Printf("User %s has %d orders loaded via preloading\n", userWithOrders.Name, len(userWithOrders.Orders))
-	}
-
-	fmt.Println("\n3. Using joins for filtering...")
-
-	// Get users who have made orders in the last 30 days using joins
-	recentUsers, err := app.userService.GetUsersWithRecentOrders(ctx, 30)
-	if err != nil {
-		return fmt.Errorf("failed to get users with recent orders: %w", err)
-	}
-	fmt.Printf("Found %d users with recent orders\n", len(recentUsers))
-
-	fmt.Println("\n4. Association management...")
-
-	// Demonstrate association management
-	if len(usersWithOrders) > 0 {
-		err := app.userService.ManageUserOrders(ctx, usersWithOrders[0].ID)
-		if err != nil {
-			return fmt.Errorf("failed to manage user orders: %w", err)
-		}
-	}
-
-	fmt.Println("\n5. Complex relationship queries...")
-
-	// Orders with user information
-	var ordersWithUsers []Order
-	err = orderRepo.Query(ctx, &ordersWithUsers,
-		gpa.Where("amount", gpa.OpGreaterThan, 500),
-		gpa.Preload("User"), // Preload User relationship
-		gpa.OrderBy("amount", gpa.OrderDesc),
-		gpa.Limit(5),
-	)
-	if err != nil {
-		return fmt.Errorf("failed to get orders with users: %w", err)
-	}
-
-	fmt.Printf("High-value orders:\n")
-	for _, order := range ordersWithUsers {
-		fmt.Printf("  - Order #%d: %s ($%.2f) by %s\n",
-			order.ID, order.ProductName, order.Amount, order.User.Name)
-	}
-
-	fmt.Println("\n6. Conditional preloading...")
-
-	// Preload orders but only active ones (requires GORM-specific syntax)
-	var usersWithActiveOrders []User
-	err = userRepo.Query(ctx, &usersWithActiveOrders,
-		gpa.Where("status", gpa.OpEqual, "active"),
-		// Note: Conditional preloading would need to be implemented in GORM adapter
-		gpa.Preload("Orders"),
-		gpa.Limit(3),
-	)
-	if err != nil {
-		return fmt.Errorf("failed conditional preloading: %w", err)
-	}
-
-	fmt.Printf("Users with conditionally loaded orders: %d\n", len(usersWithActiveOrders))
-
-	fmt.Println("\n7. Nested relationship queries...")
-
-	// Create some categories and products for demonstration
-	categoryRepo := app.provider.RepositoryFor(&Category{})
-	productRepo := app.provider.RepositoryFor(&Product{})
-
-	// Create a category
-	category := &Category{
-		Name: "Electronics",
-	}
-	err = categoryRepo.Create(ctx, category)
-	if err != nil {
-		log.Printf("Warning: Failed to create category: %v", err)
-	} else {
-		// Create products in the category
-		products := []*Product{
-			{Name: "Laptop", Price: 999.99, Stock: 10, CategoryID: category.ID, IsActive: true},
-			{Name: "Mouse", Price: 29.99, Stock: 50, CategoryID: category.ID, IsActive: true},
+			return nil, fmt.Errorf("failed to get statistics: %w", err)
 		}
 
-		for _, product := range products {
-			err = productRepo.Create(ctx, product)
-			if err != nil {
-				log.Printf("Warning: Failed to create product %s: %v", product.Name, err)
-			}
+		if len(results) > 0 {
+			return results[0], nil
 		}
-
-		// Query products with category information
-		var productsWithCategory []Product
-		err = productRepo.Query(ctx, &productsWithCategory,
-			gpa.Where("category_id", gpa.OpEqual, category.ID),
-			gpa.Preload("Category"), // This would need the relationship defined in Product model
-		)
-		if err == nil {
-			fmt.Printf("Products in category: %d\n", len(productsWithCategory))
-		}
+		return map[string]interface{}{}, nil
 	}
 
-	return nil
+	return nil, gpa.GPAError{
+		Type:    gpa.ErrorTypeUnsupported,
+		Message: "aggregation not supported",
+	}
 }
+
+// GetUsersByAgeGroup groups users by age ranges
+func (s *UserService) GetUsersByAgeGroup(ctx context.Context) ([]map[string]interface{}, error) {
+	if mongoRepo, ok := s.userRepo.(*gpamongo.Repository); ok {
+		pipeline := []map[string]interface{}{
+			{
+				"$match": map[string]interface{}{
+					"status": "active",
+				},
+			},
+			{
+				"$group": map[string]interface{}{
+					"_id": map[string]interface{}{
+						"$switch": map[string]interface{}{
+							"branches": []map[string]interface{}{
+								{
+									"case": map[string]interface{}{"$lt": []interface{}{"$age", 25}},
+									"then": "18-24",
+								},
+								{
+									"case": map[string]interface{}{"$lt": []interface{}{"$age", 35}},
+									"then": "25-34",
+								},
+								{
+									"case": map[string]interface{}{"$lt": []interface{}{"$age", 45}},
+									"then": "35-44",
+								},
+								{
+									"case": map[string]interface{}{"$lt": []interface{}{"$age", 55}},
+									"then": "45-54",
+								},
+							},
+							"default": "55+",
+						},
+					},
+					"count": map[string]interface{}{"$sum": 1},
+					"users": map[string]interface{}{
+						"$push": map[string]interface{}{
+							"name":  "$name",
+							"email": "$email",
+							"age":   "$age",
+						},
+					},
+				},
+			},
+			{
+				"$sort": map[string]interface{}{"_id": 1},
+			},
+		}
+
+		var results []map[string]interface{}
+		err := mongoRepo.Aggregate(ctx, pipeline, &results)
+		if err != nil {
+			return nil, fmt.Errorf("failed to group by age: %w", err)
+		}
+		return results, nil
+	}
+
+	return nil, gpa.GPAError{
+		Type:    gpa.ErrorTypeUnsupported,
+		Message: "aggregation not supported",
+	}
+}
+
+// =====================================
+// MongoDB Transaction Examples
+// =====================================
 
 // CreateUserWithFirstOrder creates a user and their first order in a transaction
 func (s *UserService) CreateUserWithFirstOrder(ctx context.Context, user *User, order *Order) error {
@@ -414,6 +427,8 @@ func (s *UserService) CreateUserWithFirstOrder(ctx context.Context, user *User, 
 		// Set the user ID for the order
 		order.UserID = user.ID
 		order.OrderDate = time.Now()
+		order.CreatedAt = time.Now()
+		order.UpdatedAt = time.Now()
 
 		// Create order
 		if err := tx.Create(ctx, order); err != nil {
@@ -422,55 +437,6 @@ func (s *UserService) CreateUserWithFirstOrder(ctx context.Context, user *User, 
 
 		return nil
 	})
-}
-
-// GetUserStats returns user statistics using aggregation
-func (s *UserService) GetUserStats(ctx context.Context) (map[string]interface{}, error) {
-	sqlRepo, ok := s.userRepo.(gpa.SQLRepository)
-	if !ok {
-		return nil, gpa.GPAError{
-			Type:    gpa.ErrorTypeUnsupported,
-			Message: "SQL operations not supported",
-		}
-	}
-
-	// Use a struct to properly scan the results
-	var stats struct {
-		TotalUsers    int64     `json:"total_users"`
-		ActiveUsers   int64     `json:"active_users"`
-		InactiveUsers int64     `json:"inactive_users"`
-		AverageAge    float64   `json:"average_age"`
-		FirstUserDate time.Time `json:"first_user_date"`
-		LastUserDate  time.Time `json:"last_user_date"`
-	}
-
-	err := sqlRepo.FindBySQL(ctx,
-		`SELECT
-			COUNT(*) as total_users,
-			COUNT(CASE WHEN status = 'active' THEN 1 END) as active_users,
-			COUNT(CASE WHEN status = 'inactive' THEN 1 END) as inactive_users,
-			AVG(age) as average_age,
-			MIN(created_at) as first_user_date,
-			MAX(created_at) as last_user_date
-		FROM users`,
-		[]interface{}{},
-		&stats,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user stats: %w", err)
-	}
-
-	// Convert struct to map for easier handling
-	result := map[string]interface{}{
-		"total_users":     stats.TotalUsers,
-		"active_users":    stats.ActiveUsers,
-		"inactive_users":  stats.InactiveUsers,
-		"average_age":     stats.AverageAge,
-		"first_user_date": stats.FirstUserDate,
-		"last_user_date":  stats.LastUserDate,
-	}
-
-	return result, nil
 }
 
 // =====================================
@@ -489,33 +455,39 @@ func main() {
 	ctx := context.Background()
 
 	// Basic CRUD operations
-	fmt.Println("=== Running Basic CRUD Examples ===")
+	fmt.Println("=== Running Basic MongoDB CRUD Examples ===")
 	if err := runBasicCRUDExamples(ctx, app); err != nil {
 		log.Printf("Basic CRUD examples failed: %v", err)
 	}
 
-	// Advanced query examples
-	fmt.Println("\n=== Running Advanced Query Examples ===")
-	if err := runAdvancedQueryExamples(ctx, app); err != nil {
-		log.Printf("Advanced query examples failed: %v", err)
+	// Document operations
+	fmt.Println("\n=== Running MongoDB Document Operations ===")
+	if err := runDocumentOperations(ctx, app); err != nil {
+		log.Printf("Document operations failed: %v", err)
+	}
+
+	// Array and nested document operations
+	fmt.Println("\n=== Running MongoDB Array & Nested Document Operations ===")
+	if err := runArrayAndNestedOperations(ctx, app); err != nil {
+		log.Printf("Array operations failed: %v", err)
+	}
+
+	// Aggregation examples
+	fmt.Println("\n=== Running MongoDB Aggregation Examples ===")
+	if err := runAggregationExamples(ctx, app); err != nil {
+		log.Printf("Aggregation examples failed: %v", err)
 	}
 
 	// Transaction examples
-	fmt.Println("\n=== Running Transaction Examples ===")
+	fmt.Println("\n=== Running MongoDB Transaction Examples ===")
 	if err := runTransactionExamples(ctx, app); err != nil {
 		log.Printf("Transaction examples failed: %v", err)
 	}
 
-	// Schema management examples
-	fmt.Println("\n=== Running Schema Management Examples ===")
-	if err := runSchemaExamples(ctx, app); err != nil {
-		log.Printf("Schema examples failed: %v", err)
-	}
-
-	// Relationship examples
-	fmt.Println("\n=== Running Relationship Examples ===")
-	if err := runRelationshipExamples(ctx, app); err != nil {
-		log.Printf("Relationship examples failed: %v", err)
+	// Index and performance examples
+	fmt.Println("\n=== Running MongoDB Index Examples ===")
+	if err := runIndexExamples(ctx, app); err != nil {
+		log.Printf("Index examples failed: %v", err)
 	}
 }
 
@@ -531,64 +503,54 @@ type App struct {
 
 // NewApp creates and initializes the application
 func NewApp() (*App, error) {
-	// Database configuration
+	// MongoDB configuration
 	config := gpa.Config{
-		Driver:   "postgres", // or "mysql", "sqlite", "sqlserver"
+		Driver:   "mongodb",
 		Host:     "localhost",
-		Port:     5432,
-		Database: "gpa_example",
-		Username: "postgres",
-		Password: "password",
+		Port:     27017,
+		Database: "gpa_mongodb_example",
 
-		// Connection pool settings
-		MaxOpenConns:    25,
-		MaxIdleConns:    10,
-		ConnMaxLifetime: time.Hour,
-		ConnMaxIdleTime: time.Minute * 30,
-
-		// GORM-specific options
+		// MongoDB-specific options
 		Options: map[string]interface{}{
-			"gorm": map[string]interface{}{
-				"log_level":      "info",
-				"singular_table": false,
+			"mongo": map[string]interface{}{
+				"max_pool_size": 10,
+				"min_pool_size": 1,
+				"max_idle_time": time.Minute * 30,
 			},
 		},
 
-		// SSL configuration
-		SSL: gpa.SSLConfig{
-			Enabled: false, // Set to true for production
-			Mode:    "disable",
-		},
+		// For authenticated MongoDB
+		// Username: "username",
+		// Password: "password",
+
+		// SSL configuration for MongoDB Atlas or secure deployments
+		// SSL: gpa.SSLConfig{
+		// 	Enabled: true,
+		// 	Mode:    "require",
+		// },
 	}
 
-	// For SQLite (simpler setup for examples)
-	if true { // Change to false to use PostgreSQL
+	// For MongoDB Atlas (cloud)
+	if false { // Set to true to use MongoDB Atlas
 		config = gpa.Config{
-			Driver:   "sqlite",
-			Database: "example.db",
-			Options: map[string]interface{}{
-				"gorm": map[string]interface{}{
-					"log_level": "info",
-				},
-			},
+			Driver:        "mongodb",
+			ConnectionURL: "mongodb+srv://username:password@cluster.mongodb.net/database?retryWrites=true&w=majority",
+			Database:      "gpa_mongodb_example",
 		}
 	}
 
 	// Create provider
-	provider, err := gpa.NewProvider("gorm", config)
+	provider, err := gpa.NewProvider("mongodb", config)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create provider: %w", err)
+		return nil, fmt.Errorf("failed to create MongoDB provider: %w", err)
 	}
 
 	// Test connection
 	if err := provider.Health(); err != nil {
-		return nil, fmt.Errorf("database health check failed: %w", err)
+		return nil, fmt.Errorf("MongoDB health check failed: %w", err)
 	}
 
-	// Auto-migrate tables
-	if err := setupDatabase(provider); err != nil {
-		return nil, fmt.Errorf("failed to setup database: %w", err)
-	}
+	fmt.Println("✅ Connected to MongoDB successfully!")
 
 	// Initialize services
 	userService := NewUserService(provider)
@@ -601,437 +563,504 @@ func NewApp() (*App, error) {
 
 // Close closes the application and its resources
 func (app *App) Close() error {
+	fmt.Println("Closing MongoDB connection...")
 	return app.provider.Close()
-}
-
-// setupDatabase auto-migrates all tables
-func setupDatabase(provider gpa.Provider) error {
-	// Get SQL repository for schema operations
-	sqlRepo := provider.RepositoryFor(&User{}).(gpa.SQLRepository)
-
-	ctx := context.Background()
-
-	// Auto-migrate all tables
-	entities := []interface{}{
-		&User{},
-		&Order{},
-		&Product{},
-		&Category{},
-	}
-
-	for _, entity := range entities {
-		if err := sqlRepo.MigrateTable(ctx, entity); err != nil {
-			return fmt.Errorf("failed to migrate table for %T: %w", entity, err)
-		}
-	}
-
-	// Create additional indexes (check if they exist first)
-	indexConfigs := []struct {
-		entity interface{}
-		fields []string
-		unique bool
-		name   string
-	}{
-		{&User{}, []string{"email"}, true, "email index"},
-		{&Order{}, []string{"user_id", "order_date"}, false, "order index"},
-		{&Product{}, []string{"name"}, false, "product name index"},
-		{&Product{}, []string{"category_id"}, false, "product category index"},
-		{&Category{}, []string{"name"}, true, "category name index"},
-	}
-
-	for _, config := range indexConfigs {
-		if err := sqlRepo.CreateIndex(ctx, config.entity, config.fields, config.unique); err != nil {
-			// Only log warnings for duplicate indexes, not errors
-			if gpaErr, ok := err.(gpa.GPAError); ok && gpaErr.Type == gpa.ErrorTypeDuplicate {
-				log.Printf("Info: %s already exists", config.name)
-			} else {
-				log.Printf("Warning: Failed to create %s: %v", config.name, err)
-			}
-		} else {
-			log.Printf("Created %s successfully", config.name)
-		}
-	}
-
-	return nil
 }
 
 // =====================================
 // Example Functions
 // =====================================
 
-// runBasicCRUDExamples demonstrates basic CRUD operations
+// runBasicCRUDExamples demonstrates basic CRUD operations with MongoDB
 func runBasicCRUDExamples(ctx context.Context, app *App) error {
-	fmt.Println("1. Creating users...")
+	fmt.Println("1. Creating users with nested documents...")
 
-	// Create users
+	// Create users with nested profile data
 	users := []*User{
-		{Name: "Alice Johnson", Email: "alice@example.com", Age: 28},
-		{Name: "Bob Smith", Email: "bob@example.com", Age: 35},
-		{Name: "Charlie Brown", Email: "charlie@example.com", Age: 22},
+		{
+			Name:  "Alice Johnson",
+			Email: "alice@example.com",
+			Age:   28,
+			Tags:  []string{"developer", "mongodb", "go"},
+			Profile: UserProfile{
+				Bio:       "Software developer passionate about databases",
+				Avatar:    "https://example.com/alice.jpg",
+				Interests: []string{"coding", "databases", "travel"},
+				Location: Location{
+					Country:   "USA",
+					City:      "San Francisco",
+					Latitude:  37.7749,
+					Longitude: -122.4194,
+				},
+				Verified: true,
+			},
+			Metadata: map[string]interface{}{
+				"source":          "signup",
+				"marketing_opt_in": true,
+				"referral_code":   "REF123",
+			},
+		},
+		{
+			Name:  "Bob Smith",
+			Email: "bob@example.com",
+			Age:   35,
+			Tags:  []string{"manager", "analytics"},
+			Profile: UserProfile{
+				Bio:       "Data analytics manager",
+				Interests: []string{"data", "analytics", "leadership"},
+				Location: Location{
+					Country: "Canada",
+					City:    "Toronto",
+				},
+				Verified: false,
+			},
+			Metadata: map[string]interface{}{
+				"source":        "referral",
+				"department":    "analytics",
+				"employee_id":   "EMP001",
+			},
+		},
 	}
 
 	for _, user := range users {
 		if err := app.userService.CreateUser(ctx, user); err != nil {
 			return fmt.Errorf("failed to create user %s: %w", user.Name, err)
 		}
-		fmt.Printf("Created user: %s (ID: %d)\n", user.Name, user.ID)
+		fmt.Printf("✅ Created user: %s (ID: %s)\n", user.Name, user.ID.Hex())
 	}
 
-	// Read user
-	fmt.Println("\n2. Reading user...")
+	// Read user with nested data
+	fmt.Println("\n2. Reading user with nested documents...")
 	user, err := app.userService.GetUserByID(ctx, users[0].ID)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
 	}
-	fmt.Printf("Retrieved user: %+v\n", user)
+	fmt.Printf("📖 Retrieved user: %s\n", user.Name)
+	fmt.Printf("   Bio: %s\n", user.Profile.Bio)
+	fmt.Printf("   Location: %s, %s\n", user.Profile.Location.City, user.Profile.Location.Country)
+	fmt.Printf("   Tags: %v\n", user.Tags)
+	fmt.Printf("   Metadata: %v\n", user.Metadata)
 
-	// Update user
-	fmt.Println("\n3. Updating user...")
-	if err := app.userService.UpdateUserStatus(ctx, user.ID, "premium"); err != nil {
-		return fmt.Errorf("failed to update user: %w", err)
+	// Update nested document
+	fmt.Println("\n3. Updating nested profile...")
+	newProfile := UserProfile{
+		Bio:       "Senior Software Developer",
+		Avatar:    "https://example.com/alice-new.jpg",
+		Interests: []string{"coding", "databases", "travel", "photography"},
+		Location: Location{
+			Country:   "USA",
+			City:      "Seattle",
+			Latitude:  47.6062,
+			Longitude: -122.3321,
+		},
+		Verified: true,
 	}
-	fmt.Printf("Updated user %d status to premium\n", user.ID)
+	if err := app.userService.UpdateUserProfile(ctx, user.ID, newProfile); err != nil {
+		return fmt.Errorf("failed to update profile: %w", err)
+	}
+	fmt.Printf("✅ Updated profile for user %s\n", user.Name)
 
-	// List users
+	// List users with filtering
 	fmt.Println("\n4. Listing active users...")
 	activeUsers, err := app.userService.GetActiveUsers(ctx, 10, 0)
 	if err != nil {
 		return fmt.Errorf("failed to get active users: %w", err)
 	}
-	fmt.Printf("Found %d active users\n", len(activeUsers))
+	fmt.Printf("📋 Found %d active users:\n", len(activeUsers))
 	for _, u := range activeUsers {
-		fmt.Printf("  - %s (%s)\n", u.Name, u.Email)
+		fmt.Printf("   - %s (%s) from %s\n", u.Name, u.Email, u.Profile.Location.City)
 	}
 
 	return nil
 }
 
-// runAdvancedQueryExamples demonstrates advanced querying
-func runAdvancedQueryExamples(ctx context.Context, app *App) error {
-	userRepo := app.provider.RepositoryFor(&User{})
+// runDocumentOperations demonstrates MongoDB document-specific operations
+func runDocumentOperations(ctx context.Context, app *App) error {
+	fmt.Println("1. Document-based queries...")
 
-	fmt.Println("1. Complex condition queries...")
+	userRepo := app.userService.userRepo
+	if mongoRepo, ok := userRepo.(*gpamongo.Repository); ok {
+		// Find by document (native MongoDB operation)
+		document := map[string]interface{}{
+			"profile.verified": true,
+			"age":             map[string]interface{}{"$gte": 25},
+		}
 
-	// Complex query with multiple conditions
-	var users []User
-	err := userRepo.Query(ctx, &users,
-		gpa.Where("age", gpa.OpGreaterThan, 25),
+		var users []User
+		err := mongoRepo.FindByDocument(ctx, document, &users)
+		if err != nil {
+			return fmt.Errorf("failed document query: %w", err)
+		}
+		fmt.Printf("📋 Found %d verified users over 25\n", len(users))
+
+		// Update using document
+		if len(users) > 0 {
+			updateDoc := map[string]interface{}{
+				"metadata.last_verified": time.Now(),
+				"updated_at":            time.Now(),
+			}
+			err = mongoRepo.UpdateDocument(ctx, users[0].ID, updateDoc)
+			if err != nil {
+				return fmt.Errorf("failed document update: %w", err)
+			}
+			fmt.Printf("✅ Updated verification timestamp for %s\n", users[0].Name)
+		}
+	}
+
+	fmt.Println("\n2. Complex nested queries...")
+
+	// Query users by nested location
+	var usersInUSA []User
+	err := userRepo.Query(ctx, &usersInUSA,
+		gpa.Where("profile.location.country", gpa.OpEqual, "USA"),
 		gpa.Where("status", gpa.OpEqual, "active"),
-		gpa.OrderBy("name", gpa.OrderAsc),
-		gpa.Limit(5),
 	)
 	if err != nil {
-		return fmt.Errorf("failed complex query: %w", err)
+		return fmt.Errorf("failed nested query: %w", err)
 	}
-	fmt.Printf("Found %d users over 25 and active\n", len(users))
+	fmt.Printf("🇺🇸 Found %d users in USA\n", len(usersInUSA))
 
-	// Search with OR conditions - Method 1: Using OrOption
-	fmt.Println("\n2. Search with OR conditions (Method 1)...")
-	var searchUsers1 []User
-	err = userRepo.Query(ctx, &searchUsers1,
-		gpa.OrOption(
-			gpa.WhereCondition("name", gpa.OpLike, "%Alice%"),
-			gpa.WhereCondition("email", gpa.OpLike, "%Alice%"),
-		),
-		gpa.Where("status", gpa.OpEqual, "active"),
+	// Query by array content
+	var developersUsers []User
+	err = userRepo.Query(ctx, &developersUsers,
+		gpa.Where("tags", gpa.OpIn, []string{"developer"}),
 	)
 	if err != nil {
-		return fmt.Errorf("failed OR search: %w", err)
+		return fmt.Errorf("failed array query: %w", err)
 	}
-	fmt.Printf("OR search results: %d users\n", len(searchUsers1))
-
-	// Search with complex AND/OR conditions - Method 2: Using AndOption with nested OrOption
-	fmt.Println("\n3. Complex AND/OR conditions...")
-	var searchUsers2 []User
-	err = userRepo.Query(ctx, &searchUsers2,
-		gpa.Where("age", gpa.OpGreaterThan, 20),
-		gpa.OrOption(
-			gpa.WhereCondition("name", gpa.OpLike, "%Alice%"),
-			gpa.WhereCondition("name", gpa.OpLike, "%Bob%"),
-		),
-		gpa.OrderBy("name", gpa.OrderAsc),
-	)
-	if err != nil {
-		return fmt.Errorf("failed complex AND/OR search: %w", err)
-	}
-	fmt.Printf("Complex AND/OR results: %d users\n", len(searchUsers2))
-
-	// Count query
-	fmt.Println("\n4. Count operations...")
-	count, err := userRepo.Count(ctx,
-		gpa.Where("age", gpa.OpBetween, []interface{}{20, 30}))
-	if err != nil {
-		return fmt.Errorf("failed count: %w", err)
-	}
-	fmt.Printf("Users between 20-30 years: %d\n", count)
-
-	// Exists check
-	exists, err := userRepo.Exists(ctx,
-		gpa.Where("email", gpa.OpEqual, "alice@example.com"))
-	if err != nil {
-		return fmt.Errorf("failed exists check: %w", err)
-	}
-	fmt.Printf("Alice exists: %t\n", exists)
+	fmt.Printf("👩‍💻 Found %d developers\n", len(developersUsers))
 
 	return nil
 }
 
-// runTransactionExamples demonstrates transaction usage
+// runArrayAndNestedOperations demonstrates MongoDB array and nested operations
+func runArrayAndNestedOperations(ctx context.Context, app *App) error {
+	fmt.Println("1. Array operations...")
+
+	// Get first user to work with
+	users, err := app.userService.GetActiveUsers(ctx, 1, 0)
+	if err != nil || len(users) == 0 {
+		return fmt.Errorf("no users found for array operations")
+	}
+	user := users[0]
+
+	// Add tags to user
+	fmt.Printf("Adding tags to user %s...\n", user.Name)
+	tags := []string{"expert", "team-lead", "mentor"}
+	for _, tag := range tags {
+		if err := app.userService.AddUserTag(ctx, user.ID, tag); err != nil {
+			log.Printf("Warning: Failed to add tag %s: %v", tag, err)
+		}
+	}
+
+	// Verify tags were added
+	updatedUser, err := app.userService.GetUserByID(ctx, user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get updated user: %w", err)
+	}
+	fmt.Printf("✅ User now has tags: %v\n", updatedUser.Tags)
+
+	fmt.Println("\n2. Creating products with arrays...")
+
+	productRepo := app.userService.productRepo
+	products := []*Product{
+		{
+			Name:        "MacBook Pro",
+			Description: "Apple laptop for professionals",
+			Price:       2499.99,
+			Currency:    "USD",
+			Stock:       50,
+			Category:    "electronics",
+			Tags:        []string{"laptop", "apple", "professional", "high-end"},
+			Images:      []string{"macbook1.jpg", "macbook2.jpg", "macbook3.jpg"},
+			Attributes: map[string]interface{}{
+				"brand":        "Apple",
+				"model":        "MacBook Pro 16-inch",
+				"processor":    "M3 Pro",
+				"memory":       "32GB",
+				"storage":      "1TB SSD",
+				"screen_size":  16.2,
+				"color":        "Space Gray",
+				"warranty":     "1 year",
+			},
+			IsActive:  true,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+		{
+			Name:        "Wireless Headphones",
+			Description: "Premium noise-canceling headphones",
+			Price:       349.99,
+			Currency:    "USD",
+			Stock:       100,
+			Category:    "electronics",
+			Tags:        []string{"headphones", "wireless", "noise-canceling", "premium"},
+			Images:      []string{"headphones1.jpg", "headphones2.jpg"},
+			Attributes: map[string]interface{}{
+				"brand":           "Sony",
+				"model":           "WH-1000XM4",
+				"battery_life":    "30 hours",
+				"noise_canceling": true,
+				"wireless":        true,
+				"color":           "Black",
+			},
+			IsActive:  true,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		},
+	}
+
+	for _, product := range products {
+		if err := productRepo.Create(ctx, product); err != nil {
+			return fmt.Errorf("failed to create product %s: %w", product.Name, err)
+		}
+		fmt.Printf("✅ Created product: %s (ID: %s)\n", product.Name, product.ID.Hex())
+	}
+
+	// Query products by tags
+	var laptops []Product
+	err = productRepo.Query(ctx, &laptops,
+		gpa.Where("tags", gpa.OpIn, []string{"laptop"}),
+		gpa.Where("is_active", gpa.OpEqual, true),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to query laptops: %w", err)
+	}
+	fmt.Printf("💻 Found %d laptops\n", len(laptops))
+
+	return nil
+}
+
+// runAggregationExamples demonstrates MongoDB aggregation pipeline
+func runAggregationExamples(ctx context.Context, app *App) error {
+	fmt.Println("1. User statistics aggregation...")
+
+	stats, err := app.userService.GetUserStatistics(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get statistics: %w", err)
+	}
+	fmt.Printf("📊 User Statistics:\n")
+	fmt.Printf("   Total Users: %.0f\n", stats["total_users"])
+	fmt.Printf("   Active Users: %.0f\n", stats["active_users"])
+	fmt.Printf("   Average Age: %.1f\n", stats["average_age"])
+
+	fmt.Println("\n2. Age group distribution...")
+	ageGroups, err := app.userService.GetUsersByAgeGroup(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get age groups: %w", err)
+	}
+	fmt.Printf("📊 Age Distribution:\n")
+	for _, group := range ageGroups {
+		fmt.Printf("   %s: %.0f users\n", group["_id"], group["count"])
+	}
+
+	fmt.Println("\n3. Product aggregation...")
+	productRepo := app.userService.productRepo
+	if mongoRepo, ok := productRepo.(*gpamongo.Repository); ok {
+		// Aggregate products by category
+		pipeline := []map[string]interface{}{
+			{
+				"$match": map[string]interface{}{
+					"is_active": true,
+				},
+			},
+			{
+				"$group": map[string]interface{}{
+					"_id": "$category",
+					"total_products": map[string]interface{}{"$sum": 1},
+					"total_value": map[string]interface{}{"$sum": map[string]interface{}{
+						"$multiply": []string{"$price", "$stock"},
+					}},
+					"avg_price": map[string]interface{}{"$avg": "$price"},
+					"max_price": map[string]interface{}{"$max": "$price"},
+					"min_price": map[string]interface{}{"$min": "$price"},
+				},
+			},
+			{
+				"$sort": map[string]interface{}{"total_value": -1},
+			},
+		}
+
+		var categoryStats []map[string]interface{}
+		err = mongoRepo.Aggregate(ctx, pipeline, &categoryStats)
+		if err != nil {
+			return fmt.Errorf("failed product aggregation: %w", err)
+		}
+
+		fmt.Printf("📦 Product Statistics by Category:\n")
+		for _, stat := range categoryStats {
+			fmt.Printf("   %s: %v products, avg price: $%.2f, total value: $%.2f\n",
+				stat["_id"], stat["total_products"], stat["avg_price"], stat["total_value"])
+		}
+	}
+
+	return nil
+}
+
+// runTransactionExamples demonstrates MongoDB transactions
 func runTransactionExamples(ctx context.Context, app *App) error {
 	fmt.Println("1. Creating user with first order in transaction...")
 
 	user := &User{
-		Name:  "David Wilson",
-		Email: "david@example.com",
+		Name:  "Transaction User",
+		Email: "transaction@example.com",
 		Age:   30,
+		Profile: UserProfile{
+			Bio:      "User created in transaction",
+			Verified: false,
+		},
+		Tags:      []string{"new", "transaction"},
+		Metadata:  map[string]interface{}{"created_in": "transaction"},
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
 	}
 
 	order := &Order{
 		ProductName: "Laptop",
 		Amount:      999.99,
+		Currency:    "USD",
 		Status:      "pending",
+		Items: []OrderItem{
+			{
+				Name:     "MacBook Air",
+				Quantity: 1,
+				Price:    999.99,
+			},
+		},
+		ShippingAddress: Address{
+			Street:  "123 Main St",
+			City:    "New York",
+			State:   "NY",
+			ZipCode: "10001",
+			Country: "USA",
+		},
 	}
 
 	if err := app.userService.CreateUserWithFirstOrder(ctx, user, order); err != nil {
-		return fmt.Errorf("failed transaction: %w", err)
+		log.Printf("Transaction failed (may not be supported in standalone MongoDB): %v", err)
+		fmt.Println("⚠️  Transactions may require MongoDB replica set")
+		return nil
 	}
 
-	fmt.Printf("Created user %s with order %d in transaction\n", user.Name, order.ID)
-
-	// Verify the transaction worked
-	userWithOrders, err := app.userService.GetUserWithOrders(ctx, user.ID)
-	if err != nil {
-		return fmt.Errorf("failed to verify transaction: %w", err)
-	}
-
-	fmt.Printf("User %s has %d orders\n", userWithOrders.Name, len(userWithOrders.Orders))
+	fmt.Printf("✅ Created user %s with order %s in transaction\n", user.Name, order.ID.Hex())
 
 	return nil
 }
 
-// runSchemaExamples demonstrates schema management
-func runSchemaExamples(ctx context.Context, app *App) error {
-	sqlRepo := app.provider.RepositoryFor(&Product{}).(gpa.SQLRepository)
+// runIndexExamples demonstrates MongoDB indexing
+func runIndexExamples(ctx context.Context, app *App) error {
+	fmt.Println("1. Creating indexes...")
 
-	fmt.Println("1. Getting entity metadata...")
+	userRepo := app.userService.userRepo
+	if mongoRepo, ok := userRepo.(*gpamongo.Repository); ok {
+		// Create text index for search
+		textIndex := bson.D{
+			{Key: "name", Value: "text"},
+			{Key: "email", Value: "text"},
+			{Key: "profile.bio", Value: "text"},
+		}
+		if err := mongoRepo.CreateIndex(ctx, textIndex, false); err != nil {
+			log.Printf("Warning: Failed to create text index: %v", err)
+		} else {
+			fmt.Println("✅ Created text search index")
+		}
 
-	// Get entity information
-	entityInfo, err := sqlRepo.GetEntityInfo(&Product{})
-	if err != nil {
-		return fmt.Errorf("failed to get entity info: %w", err)
+		// Create compound index
+		compoundIndex := bson.D{
+			{Key: "status", Value: 1},
+			{Key: "age", Value: 1},
+			{Key: "created_at", Value: -1},
+		}
+		if err := mongoRepo.CreateIndex(ctx, compoundIndex, false); err != nil {
+			log.Printf("Warning: Failed to create compound index: %v", err)
+		} else {
+			fmt.Println("✅ Created compound index")
+		}
+
+		// Create geospatial index
+		geoIndex := bson.D{
+			{Key: "profile.location", Value: "2dsphere"},
+		}
+		if err := mongoRepo.CreateIndex(ctx, geoIndex, false); err != nil {
+			log.Printf("Warning: Failed to create geo index: %v", err)
+		} else {
+			fmt.Println("✅ Created geospatial index")
+		}
+
+		// List all indexes
+		indexes, err := mongoRepo.ListIndexes(ctx)
+		if err != nil {
+			log.Printf("Warning: Failed to list indexes: %v", err)
+		} else {
+			fmt.Printf("📋 Total indexes: %d\n", len(indexes))
+			for _, index := range indexes {
+				if name, ok := index["name"]; ok {
+					fmt.Printf("   - %s\n", name)
+				}
+			}
+		}
 	}
-
-	fmt.Printf("Product entity info:\n")
-	fmt.Printf("  Name: %s\n", entityInfo.Name)
-	fmt.Printf("  Table: %s\n", entityInfo.TableName)
-	fmt.Printf("  Fields: %d\n", len(entityInfo.Fields))
-	fmt.Printf("  Primary Keys: %v\n", entityInfo.PrimaryKey)
-
-	// Show field details
-	for _, field := range entityInfo.Fields {
-		fmt.Printf("    %s (%s) - PK: %t, Nullable: %t\n",
-			field.Name, field.DatabaseType, field.IsPrimaryKey, field.IsNullable)
-	}
-
-	fmt.Println("\n2. Raw SQL operations...")
-
-	// Get user statistics
-	stats, err := app.userService.GetUserStats(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get stats: %w", err)
-	}
-
-	fmt.Printf("User statistics: %+v\n", stats)
 
 	return nil
 }
 
 // =====================================
-// Query Building Examples
+// Configuration Examples
 // =====================================
 
-// DemonstrateQueryBuilding shows various ways to build queries
-func DemonstrateQueryBuilding(ctx context.Context, userRepo gpa.Repository) error {
-	var users []User
-
-	// Method 1: Simple conditions
-	fmt.Println("=== Simple Conditions ===")
-	err := userRepo.Query(ctx, &users,
-		gpa.Where("age", gpa.OpGreaterThan, 25),
-		gpa.Where("status", gpa.OpEqual, "active"),
-		gpa.OrderBy("name", gpa.OrderAsc),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Method 2: OR conditions using OrOption
-	fmt.Println("=== OR Conditions ===")
-	err = userRepo.Query(ctx, &users,
-		gpa.OrOption(
-			gpa.WhereCondition("name", gpa.OpLike, "%John%"),
-			gpa.WhereCondition("email", gpa.OpLike, "%john%"),
-		),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Method 3: Complex nested conditions
-	fmt.Println("=== Complex Nested Conditions ===")
-	// (name LIKE '%John%' OR email LIKE '%john%') AND age > 18 AND status = 'active'
-	err = userRepo.Query(ctx, &users,
-		gpa.OrOption(
-			gpa.WhereCondition("name", gpa.OpLike, "%John%"),
-			gpa.WhereCondition("email", gpa.OpLike, "%john%"),
-		),
-		gpa.Where("age", gpa.OpGreaterThan, 18),
-		gpa.Where("status", gpa.OpEqual, "active"),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Method 4: Using AndOption for explicit grouping
-	fmt.Println("=== Explicit AND Grouping ===")
-	err = userRepo.Query(ctx, &users,
-		gpa.AndOption(
-			gpa.WhereCondition("age", gpa.OpGreaterThan, 18),
-			gpa.WhereCondition("age", gpa.OpLessThan, 65),
-		),
-		gpa.Where("status", gpa.OpEqual, "active"),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Method 5: Multiple OR groups with AND
-	fmt.Println("=== Multiple OR Groups ===")
-	// (name LIKE '%John%' OR name LIKE '%Jane%') AND (status = 'active' OR status = 'premium')
-	err = userRepo.Query(ctx, &users,
-		gpa.OrOption(
-			gpa.WhereCondition("name", gpa.OpLike, "%John%"),
-			gpa.WhereCondition("name", gpa.OpLike, "%Jane%"),
-		),
-		gpa.OrOption(
-			gpa.WhereCondition("status", gpa.OpEqual, "active"),
-			gpa.WhereCondition("status", gpa.OpEqual, "premium"),
-		),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Method 6: Range queries
-	fmt.Println("=== Range Queries ===")
-	err = userRepo.Query(ctx, &users,
-		gpa.Where("age", gpa.OpBetween, []interface{}{25, 45}),
-		gpa.Where("created_at", gpa.OpGreaterThan, time.Now().AddDate(-1, 0, 0)),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Method 7: IN queries
-	fmt.Println("=== IN Queries ===")
-	err = userRepo.Query(ctx, &users,
-		gpa.Where("status", gpa.OpIn, []string{"active", "premium", "vip"}),
-		gpa.Where("age", gpa.OpNotIn, []int{16, 17}), // Exclude minors
-	)
-	if err != nil {
-		return err
-	}
-
-	// Method 8: NULL checks
-	fmt.Println("=== NULL Checks ===")
-	err = userRepo.Query(ctx, &users,
-		gpa.Where("email", gpa.OpIsNotNull, nil),
-		gpa.Where("deleted_at", gpa.OpIsNull, nil),
-	)
-	if err != nil {
-		return err
-	}
-
-	// Method 9: Full query with all options
-	fmt.Println("=== Complete Query ===")
-	err = userRepo.Query(ctx, &users,
-		gpa.Where("status", gpa.OpEqual, "active"),
-		gpa.OrOption(
-			gpa.WhereCondition("name", gpa.OpLike, "%search%"),
-			gpa.WhereCondition("email", gpa.OpLike, "%search%"),
-		),
-		gpa.Where("age", gpa.OpGreaterThan, 18),
-		gpa.Select("id", "name", "email", "age"), // Only select specific fields
-		gpa.OrderBy("created_at", gpa.OrderDesc),
-		gpa.OrderBy("name", gpa.OrderAsc), // Secondary sort
-		gpa.Limit(20),
-		gpa.Offset(40), // Page 3 (20 per page)
-	)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ExampleWithMySQL shows how to configure MySQL
-func ExampleWithMySQL() gpa.Config {
+// ExampleWithMongoDBAtlas shows how to configure MongoDB Atlas
+func ExampleWithMongoDBAtlas() gpa.Config {
 	return gpa.Config{
-		Driver:   "mysql",
-		Host:     "localhost",
-		Port:     3306,
-		Database: "gpa_example",
-		Username: "root",
-		Password: "password",
-
-		MaxOpenConns:    20,
-		MaxIdleConns:    5,
-		ConnMaxLifetime: time.Hour,
+		Driver:        "mongodb",
+		ConnectionURL: "mongodb+srv://username:password@cluster.mongodb.net/database?retryWrites=true&w=majority",
+		Database:      "production_db",
 
 		Options: map[string]interface{}{
-			"gorm": map[string]interface{}{
-				"log_level": "warn",
+			"mongo": map[string]interface{}{
+				"max_pool_size": 20,
+				"min_pool_size": 5,
+				"max_idle_time": time.Hour,
 			},
 		},
 	}
 }
 
-// ExampleWithPostgreSQL shows how to configure PostgreSQL with SSL
-func ExampleWithPostgreSQL() gpa.Config {
+// ExampleWithLocalMongoDB shows how to configure local MongoDB
+func ExampleWithLocalMongoDB() gpa.Config {
 	return gpa.Config{
-		Driver:   "postgres",
+		Driver:   "mongodb",
 		Host:     "localhost",
-		Port:     5432,
-		Database: "gpa_example",
-		Username: "postgres",
-		Password: "password",
+		Port:     27017,
+		Database: "local_dev_db",
+		Username: "dev_user",
+		Password: "dev_password",
+
+		Options: map[string]interface{}{
+			"mongo": map[string]interface{}{
+				"max_pool_size": 10,
+				"min_pool_size": 2,
+			},
+		},
+	}
+}
+
+// ExampleWithMongoDBReplicaSet shows how to configure MongoDB replica set
+func ExampleWithMongoDBReplicaSet() gpa.Config {
+	return gpa.Config{
+		Driver:        "mongodb",
+		ConnectionURL: "mongodb://user:password@host1:27017,host2:27017,host3:27017/database?replicaSet=myReplicaSet",
+		Database:      "replica_db",
 
 		SSL: gpa.SSLConfig{
-			Enabled:  true,
-			Mode:     "require",
-			CertFile: "/path/to/client-cert.pem",
-			KeyFile:  "/path/to/client-key.pem",
-			CAFile:   "/path/to/ca-cert.pem",
+			Enabled: true,
+			Mode:    "require",
 		},
 
 		Options: map[string]interface{}{
-			"gorm": map[string]interface{}{
-				"log_level":      "error",
-				"singular_table": true,
-			},
-		},
-	}
-}
-
-// ExampleWithConnectionURL shows how to use connection URL
-func ExampleWithConnectionURL() gpa.Config {
-	return gpa.Config{
-		Driver:        "postgres",
-		ConnectionURL: "postgres://user:password@localhost:5432/dbname?sslmode=disable",
-
-		Options: map[string]interface{}{
-			"gorm": map[string]interface{}{
-				"log_level": "info",
+			"mongo": map[string]interface{}{
+				"max_pool_size": 25,
+				"min_pool_size": 5,
+				"max_idle_time": time.Minute * 30,
 			},
 		},
 	}
