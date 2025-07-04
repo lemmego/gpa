@@ -1,3 +1,5 @@
+// +build ignore
+
 package main
 
 import (
@@ -18,23 +20,23 @@ import (
 
 // User represents a user entity optimized for Redis storage
 type User struct {
-	ID          string            `json:"id"`
-	Username    string            `json:"username"`
-	Email       string            `json:"email"`
-	Profile     UserProfile       `json:"profile"`
-	Preferences map[string]string `json:"preferences"`
-	Tags        []string          `json:"tags"`
-	LastLogin   time.Time         `json:"last_login"`
-	CreatedAt   time.Time         `json:"created_at"`
+	ID          string              `json:"id"`
+	Username    string              `json:"username"`
+	Email       string              `json:"email"`
+	Profile     UserProfile         `json:"profile"`
+	Preferences map[string]string   `json:"preferences"`
+	Tags        []string            `json:"tags"`
+	LastLogin   time.Time           `json:"last_login"`
+	CreatedAt   time.Time           `json:"created_at"`
 }
 
 // UserProfile represents nested user profile data
 type UserProfile struct {
-	FirstName string `json:"first_name"`
-	LastName  string `json:"last_name"`
-	Age       int    `json:"age"`
-	Country   string `json:"country"`
-	Avatar    string `json:"avatar"`
+	FirstName   string `json:"first_name"`
+	LastName    string `json:"last_name"`
+	Age         int    `json:"age"`
+	Country     string `json:"country"`
+	Avatar      string `json:"avatar"`
 }
 
 // Session represents user session data
@@ -146,9 +148,9 @@ func demoBasicOperations(ctx context.Context, provider gpa.Provider) {
 				Avatar:    "https://example.com/avatars/alice.jpg",
 			},
 			Preferences: map[string]string{
-				"theme":      "dark",
-				"language":   "en",
-				"newsletter": "enabled",
+				"theme":       "dark",
+				"language":    "en",
+				"newsletter":  "enabled",
 			},
 			Tags:      []string{"premium", "early-adopter"},
 			LastLogin: time.Now().Add(-time.Hour * 2),
@@ -266,13 +268,13 @@ func demoKeyValueOperations(ctx context.Context, provider gpa.Provider) {
 		log.Printf("Error getting config: %v", err)
 		return
 	}
-	fmt.Printf("✅ Retrieved config: %s v%s\n",
+	fmt.Printf("✅ Retrieved config: %s v%s\n", 
 		retrievedConfig["app_name"], retrievedConfig["version"])
 
 	// Batch operations
 	userStats := map[string]interface{}{
-		"user:stats:user1":       map[string]int{"login_count": 42, "posts": 15},
-		"user:stats:user2":       map[string]int{"login_count": 28, "posts": 8},
+		"user:stats:user1": map[string]int{"login_count": 42, "posts": 15},
+		"user:stats:user2": map[string]int{"login_count": 28, "posts": 8},
 		"user:preferences:user1": map[string]string{"theme": "dark", "lang": "en"},
 	}
 
@@ -320,7 +322,7 @@ func demoRedisDataStructures(ctx context.Context, provider gpa.Provider) {
 	activities := []interface{}{
 		"user1 logged in",
 		"user2 created a post",
-		"user1 liked a photo",
+		"user1 liked a photo", 
 		"user3 joined the platform",
 	}
 
@@ -376,7 +378,7 @@ func demoRedisDataStructures(ctx context.Context, provider gpa.Provider) {
 	if err != nil {
 		log.Printf("Error getting hash: %v", err)
 	} else {
-		fmt.Printf("✅ Retrieved profile: %s from %s\n",
+		fmt.Printf("✅ Retrieved profile: %s from %s\n", 
 			profileData["name"], profileData["country"])
 	}
 
@@ -457,7 +459,7 @@ func demoCaching(ctx context.Context, provider gpa.Provider) {
 			CreatedAt:   time.Now(),
 		},
 		"product:2": Product{
-			ID:          "2",
+			ID:          "2", 
 			Name:        "GPA T-Shirt",
 			Description: "Official GPA merchandise",
 			Price:       19.99,
@@ -505,7 +507,7 @@ func demoSessionManagement(ctx context.Context, provider gpa.Provider) {
 		},
 		{
 			ID:        "sess_" + generateID(),
-			UserID:    "user2",
+			UserID:    "user2", 
 			Token:     "tok_" + generateID(),
 			ExpiresAt: time.Now().Add(time.Hour * 4),
 			IPAddress: "10.0.0.5",
@@ -542,7 +544,7 @@ func demoSessionManagement(ctx context.Context, provider gpa.Provider) {
 		if err != nil {
 			log.Printf("Error getting session: %v", err)
 		} else {
-			fmt.Printf("✅ Retrieved session for user1: %s (expires in %v)\n",
+			fmt.Printf("✅ Retrieved session for user1: %s (expires in %v)\n", 
 				userSession.ID, time.Until(userSession.ExpiresAt).Round(time.Minute))
 		}
 	}
@@ -732,7 +734,7 @@ func demoStreams(ctx context.Context, provider gpa.Provider) {
 		},
 		{
 			"event":      "page_view",
-			"user_id":    "user1",
+			"user_id":    "user1", 
 			"page":       "/dashboard",
 			"session_id": "sess_123",
 		},
@@ -766,11 +768,11 @@ func demoStreams(ctx context.Context, provider gpa.Provider) {
 		log.Printf("Error reading stream: %v", err)
 	} else {
 		fmt.Printf("✅ Read %d entries from stream\n", len(results[0].Messages))
-
+		
 		// Display first event
 		if len(results) > 0 && len(results[0].Messages) > 0 {
 			firstMsg := results[0].Messages[0]
-			fmt.Printf("   First event: %s - User %s\n",
+			fmt.Printf("   First event: %s - User %s\n", 
 				firstMsg.Values["event"], firstMsg.Values["user_id"])
 		}
 	}

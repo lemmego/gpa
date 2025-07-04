@@ -713,14 +713,17 @@ type EventHook interface {
 type ErrorType string
 
 const (
-	ErrorTypeConnection  ErrorType = "connection"
-	ErrorTypeConstraint  ErrorType = "constraint"
-	ErrorTypeNotFound    ErrorType = "not_found"
-	ErrorTypeDuplicate   ErrorType = "duplicate"
-	ErrorTypeTimeout     ErrorType = "timeout"
-	ErrorTypeTransaction ErrorType = "transaction"
-	ErrorTypeValidation  ErrorType = "validation"
-	ErrorTypeUnsupported ErrorType = "unsupported"
+	ErrorTypeConnection     ErrorType = "connection"
+	ErrorTypeConstraint     ErrorType = "constraint"
+	ErrorTypeNotFound       ErrorType = "not_found"
+	ErrorTypeDuplicate      ErrorType = "duplicate"
+	ErrorTypeTimeout        ErrorType = "timeout"
+	ErrorTypeTransaction    ErrorType = "transaction"
+	ErrorTypeValidation     ErrorType = "validation"
+	ErrorTypeUnsupported    ErrorType = "unsupported"
+	ErrorTypeDatabase       ErrorType = "database"
+	ErrorTypeSerialization  ErrorType = "serialization"
+	ErrorTypeInvalidArgument ErrorType = "invalid_argument"
 )
 
 // GPAError represents a GPA-specific error
