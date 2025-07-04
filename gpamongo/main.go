@@ -88,7 +88,7 @@ func (f *Factory) buildConnectionURI(config gpa.Config) string {
 	}
 
 	uri := "mongodb://"
-	
+
 	// Add credentials if provided
 	if config.Username != "" {
 		uri += config.Username
@@ -200,7 +200,7 @@ func (p *Provider) ProviderInfo() gpa.ProviderInfo {
 	return gpa.ProviderInfo{
 		Name:         "MongoDB",
 		Version:      "1.0.0",
-		DatabaseType: gpa.DatabaseTypeNoSQL,
+		DatabaseType: gpa.DatabaseTypeDocument,
 		Features:     p.SupportedFeatures(),
 	}
 }
@@ -244,10 +244,10 @@ func (r *Repository) getCollection() *mongo.Collection {
 // Create creates a new entity
 func (r *Repository) Create(ctx context.Context, entity interface{}) error {
 	collection := r.getCollection()
-	
+
 	// Set ID if not provided
 	r.ensureID(entity)
-	
+
 	result, err := collection.InsertOne(ctx, entity)
 	if err != nil {
 		return convertMongoError(err)
@@ -305,7 +305,7 @@ func (r *Repository) FindByID(ctx context.Context, id interface{}, dest interfac
 
 	filter := bson.M{"_id": mongoID}
 	result := collection.FindOne(ctx, filter)
-	
+
 	err = result.Decode(dest)
 	if err != nil {
 		return convertMongoError(err)

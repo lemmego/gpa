@@ -19,16 +19,16 @@ import (
 
 // User represents a user entity for MongoDB
 type User struct {
-	ID        primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Email     string             `bson:"email" json:"email"`
-	Name      string             `bson:"name" json:"name"`
-	Age       int                `bson:"age" json:"age"`
-	Status    string             `bson:"status" json:"status"`
-	Profile   UserProfile        `bson:"profile" json:"profile"`
-	Tags      []string           `bson:"tags,omitempty" json:"tags,omitempty"`
+	ID        primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	Email     string                 `bson:"email" json:"email"`
+	Name      string                 `bson:"name" json:"name"`
+	Age       int                    `bson:"age" json:"age"`
+	Status    string                 `bson:"status" json:"status"`
+	Profile   UserProfile            `bson:"profile" json:"profile"`
+	Tags      []string               `bson:"tags,omitempty" json:"tags,omitempty"`
 	Metadata  map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
-	CreatedAt time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt time.Time          `bson:"updated_at" json:"updated_at"`
+	CreatedAt time.Time              `bson:"created_at" json:"created_at"`
+	UpdatedAt time.Time              `bson:"updated_at" json:"updated_at"`
 
 	// Relationships (embedded or referenced)
 	Orders []Order `bson:"orders,omitempty" json:"orders,omitempty"`
@@ -38,11 +38,11 @@ func (u User) CollectionName() string { return "users" }
 
 // UserProfile represents nested user profile data
 type UserProfile struct {
-	Bio        string   `bson:"bio,omitempty" json:"bio,omitempty"`
-	Avatar     string   `bson:"avatar,omitempty" json:"avatar,omitempty"`
-	Interests  []string `bson:"interests,omitempty" json:"interests,omitempty"`
-	Location   Location `bson:"location,omitempty" json:"location,omitempty"`
-	Verified   bool     `bson:"verified" json:"verified"`
+	Bio       string   `bson:"bio,omitempty" json:"bio,omitempty"`
+	Avatar    string   `bson:"avatar,omitempty" json:"avatar,omitempty"`
+	Interests []string `bson:"interests,omitempty" json:"interests,omitempty"`
+	Location  Location `bson:"location,omitempty" json:"location,omitempty"`
+	Verified  bool     `bson:"verified" json:"verified"`
 }
 
 // Location represents geographical location
@@ -55,17 +55,17 @@ type Location struct {
 
 // Order represents an order entity for MongoDB
 type Order struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	UserID      primitive.ObjectID `bson:"user_id" json:"user_id"`
-	ProductName string             `bson:"product_name" json:"product_name"`
-	Amount      float64            `bson:"amount" json:"amount"`
-	Currency    string             `bson:"currency" json:"currency"`
-	Status      string             `bson:"status" json:"status"`
-	Items       []OrderItem        `bson:"items" json:"items"`
-	ShippingAddress Address        `bson:"shipping_address" json:"shipping_address"`
-	OrderDate   time.Time          `bson:"order_date" json:"order_date"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
+	ID              primitive.ObjectID `bson:"_id,omitempty" json:"id"`
+	UserID          primitive.ObjectID `bson:"user_id" json:"user_id"`
+	ProductName     string             `bson:"product_name" json:"product_name"`
+	Amount          float64            `bson:"amount" json:"amount"`
+	Currency        string             `bson:"currency" json:"currency"`
+	Status          string             `bson:"status" json:"status"`
+	Items           []OrderItem        `bson:"items" json:"items"`
+	ShippingAddress Address            `bson:"shipping_address" json:"shipping_address"`
+	OrderDate       time.Time          `bson:"order_date" json:"order_date"`
+	CreatedAt       time.Time          `bson:"created_at" json:"created_at"`
+	UpdatedAt       time.Time          `bson:"updated_at" json:"updated_at"`
 }
 
 func (o Order) CollectionName() string { return "orders" }
@@ -80,44 +80,44 @@ type OrderItem struct {
 
 // Address represents a shipping address
 type Address struct {
-	Street   string `bson:"street" json:"street"`
-	City     string `bson:"city" json:"city"`
-	State    string `bson:"state" json:"state"`
-	ZipCode  string `bson:"zip_code" json:"zip_code"`
-	Country  string `bson:"country" json:"country"`
+	Street  string `bson:"street" json:"street"`
+	City    string `bson:"city" json:"city"`
+	State   string `bson:"state" json:"state"`
+	ZipCode string `bson:"zip_code" json:"zip_code"`
+	Country string `bson:"country" json:"country"`
 }
 
 // Product represents a product entity for MongoDB
 type Product struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name        string             `bson:"name" json:"name"`
-	Description string             `bson:"description" json:"description"`
-	Price       float64            `bson:"price" json:"price"`
-	Currency    string             `bson:"currency" json:"currency"`
-	Stock       int                `bson:"stock" json:"stock"`
-	Category    string             `bson:"category" json:"category"`
-	Tags        []string           `bson:"tags,omitempty" json:"tags,omitempty"`
-	Images      []string           `bson:"images,omitempty" json:"images,omitempty"`
+	ID          primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	Name        string                 `bson:"name" json:"name"`
+	Description string                 `bson:"description" json:"description"`
+	Price       float64                `bson:"price" json:"price"`
+	Currency    string                 `bson:"currency" json:"currency"`
+	Stock       int                    `bson:"stock" json:"stock"`
+	Category    string                 `bson:"category" json:"category"`
+	Tags        []string               `bson:"tags,omitempty" json:"tags,omitempty"`
+	Images      []string               `bson:"images,omitempty" json:"images,omitempty"`
 	Attributes  map[string]interface{} `bson:"attributes,omitempty" json:"attributes,omitempty"`
-	IsActive    bool               `bson:"is_active" json:"is_active"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
+	IsActive    bool                   `bson:"is_active" json:"is_active"`
+	CreatedAt   time.Time              `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time              `bson:"updated_at" json:"updated_at"`
 }
 
 func (p Product) CollectionName() string { return "products" }
 
 // Category represents a product category for MongoDB
 type Category struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name        string             `bson:"name" json:"name"`
-	Description string             `bson:"description,omitempty" json:"description,omitempty"`
-	ParentID    *primitive.ObjectID `bson:"parent_id,omitempty" json:"parent_id,omitempty"`
-	Path        []string           `bson:"path" json:"path"` // For hierarchical categories
-	Level       int                `bson:"level" json:"level"`
-	IsActive    bool               `bson:"is_active" json:"is_active"`
+	ID          primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	Name        string                 `bson:"name" json:"name"`
+	Description string                 `bson:"description,omitempty" json:"description,omitempty"`
+	ParentID    *primitive.ObjectID    `bson:"parent_id,omitempty" json:"parent_id,omitempty"`
+	Path        []string               `bson:"path" json:"path"` // For hierarchical categories
+	Level       int                    `bson:"level" json:"level"`
+	IsActive    bool                   `bson:"is_active" json:"is_active"`
 	Metadata    map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
+	CreatedAt   time.Time              `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time              `bson:"updated_at" json:"updated_at"`
 }
 
 func (c Category) CollectionName() string { return "categories" }
@@ -247,18 +247,18 @@ func (s *UserService) AddUserTag(ctx context.Context, userID primitive.ObjectID,
 	if err != nil {
 		return fmt.Errorf("failed to find user: %w", err)
 	}
-	
+
 	// Check if tag already exists
 	for _, existingTag := range user.Tags {
 		if existingTag == tag {
 			return nil // Tag already exists
 		}
 	}
-	
+
 	// Add tag to the slice
 	user.Tags = append(user.Tags, tag)
 	user.UpdatedAt = time.Now()
-	
+
 	return s.userRepo.Update(ctx, &user)
 }
 
@@ -595,9 +595,9 @@ func runBasicCRUDExamples(ctx context.Context, app *App) error {
 				Verified: true,
 			},
 			Metadata: map[string]interface{}{
-				"source":          "signup",
+				"source":           "signup",
 				"marketing_opt_in": true,
-				"referral_code":   "REF123",
+				"referral_code":    "REF123",
 			},
 		},
 		{
@@ -615,9 +615,9 @@ func runBasicCRUDExamples(ctx context.Context, app *App) error {
 				Verified: false,
 			},
 			Metadata: map[string]interface{}{
-				"source":        "referral",
-				"department":    "analytics",
-				"employee_id":   "EMP001",
+				"source":      "referral",
+				"department":  "analytics",
+				"employee_id": "EMP001",
 			},
 		},
 	}
@@ -683,7 +683,7 @@ func runDocumentOperations(ctx context.Context, app *App) error {
 		// Find by document (native MongoDB operation)
 		document := map[string]interface{}{
 			"profile.verified": true,
-			"age":             map[string]interface{}{"$gte": 25},
+			"age":              map[string]interface{}{"$gte": 25},
 		}
 
 		var users []User
@@ -697,7 +697,7 @@ func runDocumentOperations(ctx context.Context, app *App) error {
 		if len(users) > 0 {
 			updateDoc := map[string]interface{}{
 				"metadata.last_verified": time.Now(),
-				"updated_at":            time.Now(),
+				"updated_at":             time.Now(),
 			}
 			err = mongoRepo.UpdateDocument(ctx, users[0].ID, updateDoc)
 			if err != nil {
@@ -774,14 +774,14 @@ func runArrayAndNestedOperations(ctx context.Context, app *App) error {
 			Tags:        []string{"laptop", "apple", "professional", "high-end"},
 			Images:      []string{"macbook1.jpg", "macbook2.jpg", "macbook3.jpg"},
 			Attributes: map[string]interface{}{
-				"brand":        "Apple",
-				"model":        "MacBook Pro 16-inch",
-				"processor":    "M3 Pro",
-				"memory":       "32GB",
-				"storage":      "1TB SSD",
-				"screen_size":  16.2,
-				"color":        "Space Gray",
-				"warranty":     "1 year",
+				"brand":       "Apple",
+				"model":       "MacBook Pro 16-inch",
+				"processor":   "M3 Pro",
+				"memory":      "32GB",
+				"storage":     "1TB SSD",
+				"screen_size": 16.2,
+				"color":       "Space Gray",
+				"warranty":    "1 year",
 			},
 			IsActive:  true,
 			CreatedAt: time.Now(),
@@ -866,7 +866,7 @@ func runAggregationExamples(ctx context.Context, app *App) error {
 			},
 			{
 				"$group": map[string]interface{}{
-					"_id": "$category",
+					"_id":            "$category",
 					"total_products": map[string]interface{}{"$sum": 1},
 					"total_value": map[string]interface{}{"$sum": map[string]interface{}{
 						"$multiply": []string{"$price", "$stock"},
@@ -950,7 +950,6 @@ func runTransactionExamples(ctx context.Context, app *App) error {
 // runIndexExamples demonstrates MongoDB indexing
 func runIndexExamples(ctx context.Context, app *App) error {
 	fmt.Println("1. Creating indexes...")
-
 	userRepo := app.userService.userRepo
 	if mongoRepo, ok := userRepo.(*gpamongo.Repository); ok {
 		// Create text index for search

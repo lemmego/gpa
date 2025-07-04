@@ -46,15 +46,15 @@ type TestOrder struct {
 func (o TestOrder) CollectionName() string { return "test_orders" }
 
 type TestProduct struct {
-	ID          primitive.ObjectID `bson:"_id,omitempty" json:"id"`
-	Name        string             `bson:"name" json:"name"`
-	Description string             `bson:"description" json:"description"`
-	Price       float64            `bson:"price" json:"price"`
-	Stock       int                `bson:"stock" json:"stock"`
-	IsActive    bool               `bson:"is_active" json:"is_active"`
+	ID          primitive.ObjectID     `bson:"_id,omitempty" json:"id"`
+	Name        string                 `bson:"name" json:"name"`
+	Description string                 `bson:"description" json:"description"`
+	Price       float64                `bson:"price" json:"price"`
+	Stock       int                    `bson:"stock" json:"stock"`
+	IsActive    bool                   `bson:"is_active" json:"is_active"`
 	Metadata    map[string]interface{} `bson:"metadata,omitempty" json:"metadata,omitempty"`
-	CreatedAt   time.Time          `bson:"created_at" json:"created_at"`
-	UpdatedAt   time.Time          `bson:"updated_at" json:"updated_at"`
+	CreatedAt   time.Time              `bson:"created_at" json:"created_at"`
+	UpdatedAt   time.Time              `bson:"updated_at" json:"updated_at"`
 }
 
 func (p TestProduct) CollectionName() string { return "test_products" }
@@ -169,7 +169,7 @@ func (suite *MongoAdapterTestSuite) TestProviderSupportedFeatures() {
 func (suite *MongoAdapterTestSuite) TestProviderInfo() {
 	info := suite.provider.ProviderInfo()
 	assert.Equal(suite.T(), "MongoDB", info.Name)
-	assert.Equal(suite.T(), gpa.DatabaseTypeNoSQL, info.DatabaseType)
+	assert.Equal(suite.T(), gpa.DatabaseTypeDocument, info.DatabaseType)
 	assert.NotEmpty(suite.T(), info.Features)
 }
 
@@ -239,7 +239,7 @@ func (suite *MongoAdapterTestSuite) TestFindByIDNotFound() {
 	var user TestUser
 	err := suite.userRepo.FindByID(suite.ctx, primitive.NewObjectID(), &user)
 	assert.Error(suite.T(), err)
-	
+
 	gpaErr, ok := err.(gpa.GPAError)
 	assert.True(suite.T(), ok)
 	assert.Equal(suite.T(), gpa.ErrorTypeNotFound, gpaErr.Type)
@@ -548,13 +548,13 @@ func (suite *MongoAdapterTestSuite) TestTransaction() {
 	var orders []TestOrder
 	err = suite.orderRepo.Query(suite.ctx, &orders,
 		gpa.Where("user_id", gpa.OpEqual, createdUserID))
-	
+
 	// If query fails, it might be due to transaction issues - skip the test
 	if err != nil {
 		suite.T().Skip("Transaction verification failed, likely due to MongoDB setup:", err)
 		return
 	}
-	
+
 	assert.NoError(suite.T(), err)
 	if len(orders) == 0 {
 		suite.T().Skip("Transaction did not persist data as expected - likely due to MongoDB standalone setup")
@@ -644,10 +644,10 @@ func (suite *MongoAdapterTestSuite) TestAggregate() {
 		pipeline := []map[string]interface{}{
 			{
 				"$group": map[string]interface{}{
-					"_id":        "$status",
-					"count":      map[string]interface{}{"$sum": 1},
-					"avg_age":    map[string]interface{}{"$avg": "$age"},
-					"total_age":  map[string]interface{}{"$sum": "$age"},
+					"_id":       "$status",
+					"count":     map[string]interface{}{"$sum": 1},
+					"avg_age":   map[string]interface{}{"$avg": "$age"},
+					"total_age": map[string]interface{}{"$sum": "$age"},
 				},
 			},
 		}
@@ -726,15 +726,15 @@ func TestMongoProviderWithValidConfig(t *testing.T) {
 	}
 	assert.NoError(t, err)
 	assert.NotNil(t, provider)
-	
+
 	defer provider.Close()
 
 	// Test provider methods
 	assert.NoError(t, provider.Health())
-	
+
 	info := provider.ProviderInfo()
 	assert.Equal(t, "MongoDB", info.Name)
-	assert.Equal(t, gpa.DatabaseTypeNoSQL, info.DatabaseType)
+	assert.Equal(t, gpa.DatabaseTypeDocument, info.DatabaseType)
 }
 
 // =====================================

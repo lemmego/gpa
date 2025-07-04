@@ -625,6 +625,8 @@ func (r *Repository) applyConditionToSelect(query *bun.SelectQuery, condition gp
 		return r.applyBasicConditionToSelect(query, cond)
 	case gpa.CompositeCondition:
 		return r.applyCompositeConditionToSelect(query, cond)
+	case gpa.SubQueryCondition:
+		return r.applySubQueryConditionToSelect(query, cond)
 	default:
 		// Fallback to string representation
 		return query.Where(condition.String(), condition.Value())
@@ -665,6 +667,34 @@ func (r *Repository) applyBasicConditionToSelect(query *bun.SelectQuery, conditi
 	case gpa.OpBetween:
 		if values, ok := value.([]interface{}); ok && len(values) == 2 {
 			return query.Where("? BETWEEN ? AND ?", bun.Ident(field), values[0], values[1])
+		}
+		return query
+	case gpa.OpExists:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			args := []interface{}{bun.Safe(subQuery.Query)}
+			args = append(args, subQuery.Args...)
+			return query.Where("EXISTS (?)", args...)
+		}
+		return query
+	case gpa.OpNotExists:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			args := []interface{}{bun.Safe(subQuery.Query)}
+			args = append(args, subQuery.Args...)
+			return query.Where("NOT EXISTS (?)", args...)
+		}
+		return query
+	case gpa.OpInSubQuery:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			args := []interface{}{bun.Ident(field), bun.Safe(subQuery.Query)}
+			args = append(args, subQuery.Args...)
+			return query.Where("? IN (?)", args...)
+		}
+		return query
+	case gpa.OpNotInSubQuery:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			args := []interface{}{bun.Ident(field), bun.Safe(subQuery.Query)}
+			args = append(args, subQuery.Args...)
+			return query.Where("? NOT IN (?)", args...)
 		}
 		return query
 	default:
@@ -743,6 +773,71 @@ func (r *Repository) buildConditionPart(condition gpa.Condition) (string, []inte
 	}
 }
 
+// applySubQueryConditionToSelect applies a subquery condition to a select query
+func (r *Repository) applySubQueryConditionToSelect(query *bun.SelectQuery, condition gpa.SubQueryCondition) *bun.SelectQuery {
+	subQuery := condition.SubQuery
+	
+	switch subQuery.Type {
+	case gpa.SubQueryTypeExists:
+		if subQuery.Operator == gpa.OpNotExists {
+			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		}
+		return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		
+	case gpa.SubQueryTypeIn:
+		if subQuery.Operator == gpa.OpNotInSubQuery {
+			return query.Where("? NOT IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		}
+		return query.Where("? IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		
+	case gpa.SubQueryTypeCorrelated:
+		// Correlated subqueries can use EXISTS or scalar operators
+		switch subQuery.Operator {
+		case gpa.OpExists:
+			return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		case gpa.OpNotExists:
+			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		case gpa.OpGreaterThan:
+			return query.Where("? > ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThan:
+			return query.Where("? < ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpEqual:
+			return query.Where("? = ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpGreaterThanOrEqual:
+			return query.Where("? >= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThanOrEqual:
+			return query.Where("? <= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpNotEqual:
+			return query.Where("? != ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		default:
+			return query.Where(condition.String())
+		}
+		
+	case gpa.SubQueryTypeScalar:
+		// For scalar subqueries, use the operator directly
+		switch subQuery.Operator {
+		case gpa.OpGreaterThan:
+			return query.Where("? > ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThan:
+			return query.Where("? < ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpEqual:
+			return query.Where("? = ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpGreaterThanOrEqual:
+			return query.Where("? >= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThanOrEqual:
+			return query.Where("? <= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpNotEqual:
+			return query.Where("? != ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		default:
+			return query.Where(condition.String())
+		}
+		
+	default:
+		// Fallback to string representation
+		return query.Where(condition.String())
+	}
+}
+
 // applyConditionToDelete applies a condition to a delete query
 func (r *Repository) applyConditionToDelete(query *bun.DeleteQuery, condition gpa.Condition) *bun.DeleteQuery {
 	switch cond := condition.(type) {
@@ -750,6 +845,8 @@ func (r *Repository) applyConditionToDelete(query *bun.DeleteQuery, condition gp
 		return r.applyBasicConditionToDelete(query, cond)
 	case gpa.CompositeCondition:
 		return r.applyCompositeConditionToDelete(query, cond)
+	case gpa.SubQueryCondition:
+		return r.applySubQueryConditionToDelete(query, cond)
 	default:
 		return query.Where(condition.String(), condition.Value())
 	}
@@ -1043,6 +1140,8 @@ func (r *Repository) BulkUpdate(ctx context.Context, updates map[string]interfac
 // applyConditionToUpdate applies a condition to an update query
 func (r *Repository) applyConditionToUpdate(query *bun.UpdateQuery, condition gpa.Condition) *bun.UpdateQuery {
 	switch cond := condition.(type) {
+	case gpa.SubQueryCondition:
+		return r.applySubQueryConditionToUpdate(query, cond)
 	case gpa.BasicCondition:
 		field := cond.Field()
 		op := cond.Operator()
@@ -1084,6 +1183,130 @@ func (r *Repository) applyConditionToUpdate(query *bun.UpdateQuery, condition gp
 		return query
 	default:
 		return query.Where(condition.String(), condition.Value())
+	}
+}
+
+// applySubQueryConditionToDelete applies a subquery condition to a delete query
+func (r *Repository) applySubQueryConditionToDelete(query *bun.DeleteQuery, condition gpa.SubQueryCondition) *bun.DeleteQuery {
+	subQuery := condition.SubQuery
+	
+	switch subQuery.Type {
+	case gpa.SubQueryTypeExists:
+		if subQuery.Operator == gpa.OpNotExists {
+			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		}
+		return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		
+	case gpa.SubQueryTypeIn:
+		if subQuery.Operator == gpa.OpNotInSubQuery {
+			return query.Where("? NOT IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		}
+		return query.Where("? IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		
+	case gpa.SubQueryTypeCorrelated:
+		switch subQuery.Operator {
+		case gpa.OpExists:
+			return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		case gpa.OpNotExists:
+			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		case gpa.OpGreaterThan:
+			return query.Where("? > ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThan:
+			return query.Where("? < ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpEqual:
+			return query.Where("? = ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpGreaterThanOrEqual:
+			return query.Where("? >= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThanOrEqual:
+			return query.Where("? <= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpNotEqual:
+			return query.Where("? != ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		default:
+			return query.Where(condition.String())
+		}
+		
+	case gpa.SubQueryTypeScalar:
+		switch subQuery.Operator {
+		case gpa.OpGreaterThan:
+			return query.Where("? > ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThan:
+			return query.Where("? < ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpEqual:
+			return query.Where("? = ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpGreaterThanOrEqual:
+			return query.Where("? >= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThanOrEqual:
+			return query.Where("? <= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpNotEqual:
+			return query.Where("? != ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		default:
+			return query.Where(condition.String())
+		}
+		
+	default:
+		return query.Where(condition.String())
+	}
+}
+
+// applySubQueryConditionToUpdate applies a subquery condition to an update query  
+func (r *Repository) applySubQueryConditionToUpdate(query *bun.UpdateQuery, condition gpa.SubQueryCondition) *bun.UpdateQuery {
+	subQuery := condition.SubQuery
+	
+	switch subQuery.Type {
+	case gpa.SubQueryTypeExists:
+		if subQuery.Operator == gpa.OpNotExists {
+			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		}
+		return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		
+	case gpa.SubQueryTypeIn:
+		if subQuery.Operator == gpa.OpNotInSubQuery {
+			return query.Where("? NOT IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		}
+		return query.Where("? IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		
+	case gpa.SubQueryTypeCorrelated:
+		switch subQuery.Operator {
+		case gpa.OpExists:
+			return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		case gpa.OpNotExists:
+			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
+		case gpa.OpGreaterThan:
+			return query.Where("? > ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThan:
+			return query.Where("? < ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpEqual:
+			return query.Where("? = ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpGreaterThanOrEqual:
+			return query.Where("? >= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThanOrEqual:
+			return query.Where("? <= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpNotEqual:
+			return query.Where("? != ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		default:
+			return query.Where(condition.String())
+		}
+		
+	case gpa.SubQueryTypeScalar:
+		switch subQuery.Operator {
+		case gpa.OpGreaterThan:
+			return query.Where("? > ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThan:
+			return query.Where("? < ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpEqual:
+			return query.Where("? = ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpGreaterThanOrEqual:
+			return query.Where("? >= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpLessThanOrEqual:
+			return query.Where("? <= ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		case gpa.OpNotEqual:
+			return query.Where("? != ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
+		default:
+			return query.Where(condition.String())
+		}
+		
+	default:
+		return query.Where(condition.String())
 	}
 }
 

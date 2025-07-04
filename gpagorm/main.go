@@ -689,6 +689,8 @@ func (r *Repository) applyCondition(db *gorm.DB, condition gpa.Condition) *gorm.
 		return r.applyBasicCondition(db, cond)
 	case gpa.CompositeCondition:
 		return r.applyCompositeCondition(db, cond)
+	case gpa.SubQueryCondition:
+		return r.applySubQueryCondition(db, cond)
 	default:
 		// Fallback to string representation
 		return db.Where(condition.String(), condition.Value())
@@ -729,6 +731,26 @@ func (r *Repository) applyBasicCondition(db *gorm.DB, condition gpa.BasicConditi
 	case gpa.OpBetween:
 		if values, ok := value.([]interface{}); ok && len(values) == 2 {
 			return db.Where(fmt.Sprintf("%s BETWEEN ? AND ?", field), values[0], values[1])
+		}
+		return db
+	case gpa.OpExists:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			return db.Where(fmt.Sprintf("EXISTS (%s)", subQuery.Query), subQuery.Args...)
+		}
+		return db
+	case gpa.OpNotExists:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			return db.Where(fmt.Sprintf("NOT EXISTS (%s)", subQuery.Query), subQuery.Args...)
+		}
+		return db
+	case gpa.OpInSubQuery:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			return db.Where(fmt.Sprintf("%s IN (%s)", field, subQuery.Query), subQuery.Args...)
+		}
+		return db
+	case gpa.OpNotInSubQuery:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			return db.Where(fmt.Sprintf("%s NOT IN (%s)", field, subQuery.Query), subQuery.Args...)
 		}
 		return db
 	default:
@@ -796,6 +818,33 @@ func (r *Repository) applyCompositeCondition(db *gorm.DB, condition gpa.Composit
 		return db.Where(whereClause, values...)
 	}
 	return db.Where(whereClause)
+}
+
+// applySubQueryCondition applies a subquery condition
+func (r *Repository) applySubQueryCondition(db *gorm.DB, condition gpa.SubQueryCondition) *gorm.DB {
+	subQuery := condition.SubQuery
+	
+	switch subQuery.Type {
+	case gpa.SubQueryTypeExists:
+		if subQuery.Operator == gpa.OpNotExists {
+			return db.Where(fmt.Sprintf("NOT EXISTS (%s)", subQuery.Query), subQuery.Args...)
+		}
+		return db.Where(fmt.Sprintf("EXISTS (%s)", subQuery.Query), subQuery.Args...)
+		
+	case gpa.SubQueryTypeIn:
+		if subQuery.Operator == gpa.OpNotInSubQuery {
+			return db.Where(fmt.Sprintf("%s NOT IN (%s)", subQuery.Field, subQuery.Query), subQuery.Args...)
+		}
+		return db.Where(fmt.Sprintf("%s IN (%s)", subQuery.Field, subQuery.Query), subQuery.Args...)
+		
+	case gpa.SubQueryTypeScalar, gpa.SubQueryTypeCorrelated:
+		// For scalar and correlated subqueries, use the operator directly
+		return db.Where(fmt.Sprintf("%s %s (%s)", subQuery.Field, subQuery.Operator, subQuery.Query), subQuery.Args...)
+		
+	default:
+		// Fallback to string representation
+		return db.Where(condition.String())
+	}
 }
 
 // applyHaving applies a having condition

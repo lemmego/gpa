@@ -121,11 +121,11 @@ type ProviderInfo struct {
 type DatabaseType string
 
 const (
-	DatabaseTypeSQL    DatabaseType = "sql"
-	DatabaseTypeNoSQL  DatabaseType = "nosql"
-	DatabaseTypeKV     DatabaseType = "key-value"
-	DatabaseTypeGraph  DatabaseType = "graph"
-	DatabaseTypeMemory DatabaseType = "memory"
+	DatabaseTypeSQL      DatabaseType = "sql"
+	DatabaseTypeDocument DatabaseType = "document"
+	DatabaseTypeKV       DatabaseType = "key-value"
+	DatabaseTypeGraph    DatabaseType = "graph"
+	DatabaseTypeMemory   DatabaseType = "memory"
 )
 
 // Feature represents a database feature
@@ -166,6 +166,7 @@ type Query struct {
 	Distinct   bool
 	Lock       LockType
 	Preloads   []string
+	SubQueries []SubQuery
 }
 
 // Condition represents a query condition
@@ -226,6 +227,10 @@ const (
 	OpStartsWith         Operator = "STARTS_WITH"
 	OpEndsWith           Operator = "ENDS_WITH"
 	OpRegex              Operator = "REGEX"
+	OpExists             Operator = "EXISTS"
+	OpNotExists          Operator = "NOT EXISTS"
+	OpInSubQuery         Operator = "IN_SUBQUERY"
+	OpNotInSubQuery      Operator = "NOT_IN_SUBQUERY"
 )
 
 // LogicOperator represents logical operators
@@ -277,6 +282,49 @@ const (
 	LockForUpdate LockType = "FOR UPDATE"
 	LockForShare  LockType = "FOR SHARE"
 )
+
+// =====================================
+// SubQuery Support
+// =====================================
+
+// SubQuery represents a subquery
+type SubQuery struct {
+	Query       string
+	Args        []interface{}
+	Type        SubQueryType
+	Field       string // Field for subquery conditions
+	Operator    Operator
+	IsCorrelated bool
+}
+
+// SubQueryType represents the type of subquery
+type SubQueryType string
+
+const (
+	SubQueryTypeExists     SubQueryType = "EXISTS"
+	SubQueryTypeIn         SubQueryType = "IN"
+	SubQueryTypeScalar     SubQueryType = "SCALAR"
+	SubQueryTypeCorrelated SubQueryType = "CORRELATED"
+)
+
+// SubQueryCondition implements Condition for subqueries
+type SubQueryCondition struct {
+	SubQuery SubQuery
+}
+
+func (s SubQueryCondition) Field() string      { return s.SubQuery.Field }
+func (s SubQueryCondition) Operator() Operator { return s.SubQuery.Operator }
+func (s SubQueryCondition) Value() interface{} { return s.SubQuery }
+func (s SubQueryCondition) String() string {
+	switch s.SubQuery.Type {
+	case SubQueryTypeExists:
+		return "EXISTS (" + s.SubQuery.Query + ")"
+	case SubQueryTypeIn:
+		return s.SubQuery.Field + " IN (" + s.SubQuery.Query + ")"
+	default:
+		return s.SubQuery.Field + " " + string(s.SubQuery.Operator) + " (" + s.SubQuery.Query + ")"
+	}
+}
 
 // =====================================
 // Query Builder Functions
@@ -358,6 +406,90 @@ func JoinWithAlias(joinType JoinType, table string, alias string, condition stri
 }
 
 // =====================================
+// SubQuery Builder Functions
+// =====================================
+
+// NewSubQuery creates a basic subquery
+func NewSubQuery(query string, args ...interface{}) SubQuery {
+	return SubQuery{
+		Query: query,
+		Args:  args,
+		Type:  SubQueryTypeScalar,
+	}
+}
+
+// ExistsSubQuery creates an EXISTS subquery condition
+func ExistsSubQuery(query string, args ...interface{}) QueryOption {
+	subQuery := SubQuery{
+		Query:    query,
+		Args:     args,
+		Type:     SubQueryTypeExists,
+		Operator: OpExists,
+	}
+	return subQueryOption{SubQueryCondition{SubQuery: subQuery}}
+}
+
+// NotExistsSubQuery creates a NOT EXISTS subquery condition
+func NotExistsSubQuery(query string, args ...interface{}) QueryOption {
+	subQuery := SubQuery{
+		Query:    query,
+		Args:     args,
+		Type:     SubQueryTypeExists,
+		Operator: OpNotExists,
+	}
+	return subQueryOption{SubQueryCondition{SubQuery: subQuery}}
+}
+
+// InSubQuery creates an IN subquery condition
+func InSubQuery(field string, query string, args ...interface{}) QueryOption {
+	subQuery := SubQuery{
+		Query:    query,
+		Args:     args,
+		Type:     SubQueryTypeIn,
+		Field:    field,
+		Operator: OpInSubQuery,
+	}
+	return subQueryOption{SubQueryCondition{SubQuery: subQuery}}
+}
+
+// NotInSubQuery creates a NOT IN subquery condition
+func NotInSubQuery(field string, query string, args ...interface{}) QueryOption {
+	subQuery := SubQuery{
+		Query:    query,
+		Args:     args,
+		Type:     SubQueryTypeIn,
+		Field:    field,
+		Operator: OpNotInSubQuery,
+	}
+	return subQueryOption{SubQueryCondition{SubQuery: subQuery}}
+}
+
+// WhereSubQuery creates a subquery condition with custom operator
+func WhereSubQuery(field string, operator Operator, query string, args ...interface{}) QueryOption {
+	subQuery := SubQuery{
+		Query:    query,
+		Args:     args,
+		Type:     SubQueryTypeScalar,
+		Field:    field,
+		Operator: operator,
+	}
+	return subQueryOption{SubQueryCondition{SubQuery: subQuery}}
+}
+
+// CorrelatedSubQuery creates a correlated subquery
+func CorrelatedSubQuery(field string, operator Operator, query string, args ...interface{}) QueryOption {
+	subQuery := SubQuery{
+		Query:        query,
+		Args:         args,
+		Type:         SubQueryTypeCorrelated,
+		Field:        field,
+		Operator:     operator,
+		IsCorrelated: true,
+	}
+	return subQueryOption{SubQueryCondition{SubQuery: subQuery}}
+}
+
+// =====================================
 // Query Option Implementations
 // =====================================
 
@@ -422,6 +554,13 @@ func (p preloadOption) Apply(q *Query) { q.Preloads = p.relations }
 type joinOption struct{ join JoinClause }
 
 func (j joinOption) Apply(q *Query) { q.Joins = append(q.Joins, j.join) }
+
+type subQueryOption struct{ condition SubQueryCondition }
+
+func (s subQueryOption) Apply(q *Query) { 
+	q.Conditions = append(q.Conditions, s.condition)
+	q.SubQueries = append(q.SubQueries, s.condition.SubQuery)
+}
 
 // =====================================
 // Entity Metadata

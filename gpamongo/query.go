@@ -93,6 +93,8 @@ func (r *Repository) buildCondition(condition gpa.Condition) bson.M {
 		return r.buildBasicCondition(cond)
 	case gpa.CompositeCondition:
 		return r.buildCompositeCondition(cond)
+	case gpa.SubQueryCondition:
+		return r.buildSubQueryCondition(cond)
 	default:
 		// Fallback - try to extract field, operator, and value
 		field := r.convertFieldName(condition.Field())
@@ -198,6 +200,27 @@ func (r *Repository) buildOperatorCondition(field string, operator gpa.Operator,
 		return bson.M{field: bson.M{"$regex": fmt.Sprintf("%v$", value), "$options": "i"}}
 	case gpa.OpRegex:
 		return bson.M{field: bson.M{"$regex": value}}
+	case gpa.OpExists:
+		// For MongoDB, EXISTS becomes a $lookup aggregation
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			return r.convertSubQueryToMongoDB(field, operator, subQuery)
+		}
+		return bson.M{}
+	case gpa.OpNotExists:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			return r.convertSubQueryToMongoDB(field, operator, subQuery)
+		}
+		return bson.M{}
+	case gpa.OpInSubQuery:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			return r.convertSubQueryToMongoDB(field, operator, subQuery)
+		}
+		return bson.M{}
+	case gpa.OpNotInSubQuery:
+		if subQuery, ok := value.(gpa.SubQuery); ok {
+			return r.convertSubQueryToMongoDB(field, operator, subQuery)
+		}
+		return bson.M{}
 	default:
 		// Fallback to equality
 		return bson.M{field: value}
@@ -303,4 +326,126 @@ func (r *Repository) BuildUnwindStage(field string, preserveNullAndEmpty bool) b
 		unwind["preserveNullAndEmptyArrays"] = true
 	}
 	return bson.M{"$unwind": unwind}
+}
+
+// =====================================
+// SubQuery Support for MongoDB
+// =====================================
+
+// buildSubQueryCondition builds MongoDB aggregation pipeline from a subquery condition
+func (r *Repository) buildSubQueryCondition(condition gpa.SubQueryCondition) bson.M {
+	subQuery := condition.SubQuery
+	field := r.convertFieldName(subQuery.Field)
+	
+	return r.convertSubQueryToMongoDB(field, subQuery.Operator, subQuery)
+}
+
+// convertSubQueryToMongoDB converts SQL-style subqueries to MongoDB aggregation patterns
+func (r *Repository) convertSubQueryToMongoDB(field string, operator gpa.Operator, subQuery gpa.SubQuery) bson.M {
+	switch subQuery.Type {
+	case gpa.SubQueryTypeExists, gpa.SubQueryTypeIn:
+		// For EXISTS and IN subqueries in MongoDB, we need to use aggregation pipelines
+		// This is a simplified implementation - in practice, you would need to:
+		// 1. Parse the SQL subquery to extract collection name and conditions
+		// 2. Convert to $lookup + $match pipeline
+		
+		// For now, return a placeholder that can be used in aggregation pipelines
+		// Note: This would typically require the query to be executed as an aggregation
+		// rather than a simple find operation
+		
+		// Extract table name from subquery (simplified parsing)
+		tableName := r.extractTableNameFromSubQuery(subQuery.Query)
+		if tableName == "" {
+			// Fallback - return empty filter to avoid errors
+			return bson.M{}
+		}
+		
+		switch operator {
+		case gpa.OpExists:
+			// EXISTS: use $lookup to check if related documents exist
+			return bson.M{
+				"$expr": bson.M{
+					"$gt": []interface{}{
+						bson.M{
+							"$size": bson.M{
+								"$filter": bson.M{
+									"input": fmt.Sprintf("$%s_lookup", tableName),
+									"cond":  bson.M{"$ne": []interface{}{"$$this", nil}},
+								},
+							},
+						},
+						0,
+					},
+				},
+			}
+		case gpa.OpNotExists:
+			// NOT EXISTS: opposite of EXISTS
+			return bson.M{
+				"$expr": bson.M{
+					"$eq": []interface{}{
+						bson.M{
+							"$size": bson.M{
+								"$filter": bson.M{
+									"input": fmt.Sprintf("$%s_lookup", tableName),
+									"cond":  bson.M{"$ne": []interface{}{"$$this", nil}},
+								},
+							},
+						},
+						0,
+					},
+				},
+			}
+		case gpa.OpInSubQuery:
+			// IN subquery: check if field value exists in related collection
+			return bson.M{
+				field: bson.M{
+					"$in": fmt.Sprintf("$%s_values", tableName),
+				},
+			}
+		case gpa.OpNotInSubQuery:
+			// NOT IN subquery: check if field value does not exist in related collection
+			return bson.M{
+				field: bson.M{
+					"$nin": fmt.Sprintf("$%s_values", tableName),
+				},
+			}
+		}
+		
+	case gpa.SubQueryTypeScalar, gpa.SubQueryTypeCorrelated:
+		// For scalar subqueries, we could use aggregation to compute the value
+		// This is more complex and would require parsing the subquery
+		
+		// Simplified implementation: return a placeholder
+		return bson.M{
+			"$comment": fmt.Sprintf("Subquery not fully implemented: %s %s (%s)", 
+				field, operator, subQuery.Query),
+		}
+	}
+	
+	// Fallback
+	return bson.M{}
+}
+
+// extractTableNameFromSubQuery extracts the table/collection name from a SQL subquery
+// This is a simplified implementation - in practice, you'd need a proper SQL parser
+func (r *Repository) extractTableNameFromSubQuery(query string) string {
+	// Very basic extraction - look for "FROM table_name" pattern
+	query = strings.ToLower(query)
+	
+	// Find "from" keyword
+	fromIndex := strings.Index(query, " from ")
+	if fromIndex == -1 {
+		return ""
+	}
+	
+	// Extract the part after "from"
+	afterFrom := strings.TrimSpace(query[fromIndex+6:])
+	
+	// Get the first word (table name)
+	parts := strings.Fields(afterFrom)
+	if len(parts) > 0 {
+		return strings.Trim(parts[0], " \t\n\r")
+	}
+	
+	return ""
 }
