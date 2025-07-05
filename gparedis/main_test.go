@@ -368,7 +368,7 @@ func (suite *RedisAdapterTestSuite) TestKeyValueOperations() {
 		"age":  25,
 	}
 	
-	err := redisRepo.Set(suite.ctx, "test:key1", testData, 0)
+	err := redisRepo.Set(suite.ctx, "test:key1", testData)
 	assert.NoError(suite.T(), err)
 	
 	var retrieved map[string]interface{}
@@ -402,7 +402,7 @@ func (suite *RedisAdapterTestSuite) TestMGetMSet() {
 		"key3": "value3",
 	}
 	
-	err := redisRepo.MSet(suite.ctx, pairs, 0)
+	err := redisRepo.MSet(suite.ctx, pairs)
 	assert.NoError(suite.T(), err)
 	
 	// Test MGet
@@ -442,7 +442,7 @@ func (suite *RedisAdapterTestSuite) TestTTL() {
 	require.True(suite.T(), ok)
 	
 	// Set with TTL
-	err := redisRepo.Set(suite.ctx, "ttl:key", "value", time.Second*10)
+	err := redisRepo.SetWithTTL(suite.ctx, "ttl:key", "value", time.Second*10)
 	assert.NoError(suite.T(), err)
 	
 	// Check TTL
@@ -470,7 +470,7 @@ func (suite *RedisAdapterTestSuite) TestKeysAndScan() {
 		"other": "value3",
 	}
 	
-	err := redisRepo.MSet(suite.ctx, pairs, 0)
+	err := redisRepo.MSet(suite.ctx, pairs)
 	require.NoError(suite.T(), err)
 	
 	// Test Keys

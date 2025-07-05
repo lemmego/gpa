@@ -108,10 +108,10 @@ func (suite *BunAdapterTestSuite) TearDownSuite() {
 func (suite *BunAdapterTestSuite) SetupTest() {
 	// Clean up tables before each test
 	sqlRepo := suite.userRepo.(gpa.SQLRepository)
-	
+
 	// Delete data (ignore errors if tables don't exist)
 	sqlRepo.ExecSQL(suite.ctx, "DELETE FROM test_orders")
-	sqlRepo.ExecSQL(suite.ctx, "DELETE FROM test_users") 
+	sqlRepo.ExecSQL(suite.ctx, "DELETE FROM test_users")
 	sqlRepo.ExecSQL(suite.ctx, "DELETE FROM test_products")
 }
 
@@ -121,7 +121,7 @@ func (suite *BunAdapterTestSuite) SetupTest() {
 
 func (suite *BunAdapterTestSuite) TestProviderFactory() {
 	factory := &Factory{}
-	
+
 	// Test supported drivers
 	drivers := factory.SupportedDrivers()
 	expected := []string{"postgres", "postgresql", "mysql", "sqlite", "sqlite3"}
@@ -221,7 +221,7 @@ func (suite *BunAdapterTestSuite) TestFindByIDNotFound() {
 	var user TestUser
 	err := suite.userRepo.FindByID(suite.ctx, 999, &user)
 	assert.Error(suite.T(), err)
-	
+
 	gpaErr, ok := err.(gpa.GPAError)
 	assert.True(suite.T(), ok)
 	assert.Equal(suite.T(), gpa.ErrorTypeNotFound, gpaErr.Type)
@@ -692,7 +692,7 @@ func (suite *BunAdapterTestSuite) TestRawExec() {
 		"UPDATE test_users SET age = ? WHERE id = ?",
 		35, user.ID)
 	assert.NoError(suite.T(), err)
-	
+
 	rowsAffected, err := result.RowsAffected()
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), int64(1), rowsAffected)
@@ -706,7 +706,7 @@ func (suite *BunAdapterTestSuite) TestRawExec() {
 
 func (suite *BunAdapterTestSuite) TestGetEntityInfo() {
 	sqlRepo := suite.userRepo.(gpa.SQLRepository)
-	
+
 	entityInfo, err := sqlRepo.GetEntityInfo(&TestUser{})
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), "TestUser", entityInfo.Name)
@@ -737,7 +737,7 @@ func (suite *BunAdapterTestSuite) TestGetEntityInfo() {
 
 func (suite *BunAdapterTestSuite) TestCreateTable() {
 	sqlRepo := suite.productRepo.(gpa.SQLRepository)
-	
+
 	// Try to create a table that already exists (Bun allows this)
 	err := sqlRepo.CreateTable(suite.ctx, &TestProduct{})
 	// Bun doesn't return an error for creating existing tables, unlike GORM
@@ -746,7 +746,7 @@ func (suite *BunAdapterTestSuite) TestCreateTable() {
 
 func (suite *BunAdapterTestSuite) TestMigrateTable() {
 	sqlRepo := suite.productRepo.(gpa.SQLRepository)
-	
+
 	// Migrate table (should work even if table exists)
 	err := sqlRepo.MigrateTable(suite.ctx, &TestProduct{})
 	assert.NoError(suite.T(), err)
@@ -862,7 +862,7 @@ func (suite *BunAdapterTestSuite) TestConnectionStats() {
 		stats, err := bunRepo.GetConnectionStats(suite.ctx)
 		assert.NoError(suite.T(), err)
 		assert.NotNil(suite.T(), stats)
-		
+
 		// Check for expected connection pool stats
 		assert.Contains(suite.T(), stats, "open_connections")
 		assert.Contains(suite.T(), stats, "max_open_connections")
@@ -1097,10 +1097,10 @@ func TestBunProviderWithDifferentConfigurations(t *testing.T) {
 		provider, err := factory.Create(config)
 		assert.NoError(t, err, "Config %d failed", i)
 		assert.NotNil(t, provider, "Config %d returned nil provider", i)
-		
+
 		err = provider.Health()
 		assert.NoError(t, err, "Health check failed for config %d", i)
-		
+
 		provider.Close()
 	}
 }
@@ -1151,7 +1151,7 @@ func BenchmarkBunCreate(b *testing.B) {
 	repo := provider.RepositoryFor(&TestUser{})
 	sqlRepo := repo.(gpa.SQLRepository)
 	ctx := context.Background()
-	
+
 	err = sqlRepo.CreateTable(ctx, &TestUser{})
 	require.NoError(b, err)
 
@@ -1189,7 +1189,7 @@ func BenchmarkBunQuery(b *testing.B) {
 	repo := provider.RepositoryFor(&TestUser{})
 	sqlRepo := repo.(gpa.SQLRepository)
 	ctx := context.Background()
-	
+
 	err = sqlRepo.CreateTable(ctx, &TestUser{})
 	require.NoError(b, err)
 

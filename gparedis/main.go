@@ -186,8 +186,13 @@ func (r *Repository) Get(ctx context.Context, key string, dest interface{}) erro
 	return json.Unmarshal(data, dest)
 }
 
-// Set stores a value with a key and optional TTL
-func (r *Repository) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+// Set stores a value with a key (BasicKeyValueRepository interface)
+func (r *Repository) Set(ctx context.Context, key string, value interface{}) error {
+	return r.SetWithTTL(ctx, key, value, 0)
+}
+
+// SetWithTTL stores a value with a key and TTL (TTLKeyValueRepository interface)
+func (r *Repository) SetWithTTL(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
 	fullKey := r.buildKey(key)
 	
 	data, err := json.Marshal(value)
@@ -269,8 +274,13 @@ func (r *Repository) MGet(ctx context.Context, keys []string, dest interface{}) 
 	return nil
 }
 
-// MSet stores multiple key-value pairs
-func (r *Repository) MSet(ctx context.Context, pairs map[string]interface{}, ttl time.Duration) error {
+// MSet stores multiple key-value pairs (BatchKeyValueRepository interface)
+func (r *Repository) MSet(ctx context.Context, pairs map[string]interface{}) error {
+	return r.MSetWithTTL(ctx, pairs, 0)
+}
+
+// MSetWithTTL stores multiple key-value pairs with TTL
+func (r *Repository) MSetWithTTL(ctx context.Context, pairs map[string]interface{}, ttl time.Duration) error {
 	if len(pairs) == 0 {
 		return nil
 	}
@@ -313,6 +323,16 @@ func (r *Repository) MDelete(ctx context.Context, keys []string) error {
 func (r *Repository) Increment(ctx context.Context, key string, delta int64) (int64, error) {
 	fullKey := r.buildKey(key)
 	result, err := r.client.IncrBy(ctx, fullKey, delta).Result()
+	if err != nil {
+		return 0, convertRedisError(err)
+	}
+	return result, nil
+}
+
+// Decrement decrements a numeric value
+func (r *Repository) Decrement(ctx context.Context, key string, delta int64) (int64, error) {
+	fullKey := r.buildKey(key)
+	result, err := r.client.DecrBy(ctx, fullKey, delta).Result()
 	if err != nil {
 		return 0, convertRedisError(err)
 	}
@@ -375,31 +395,8 @@ func (r *Repository) Scan(ctx context.Context, cursor uint64, pattern string, co
 // KeyValueRepository Interface Adapter
 // =====================================
 
-// KeyValueRepository interface for Redis-specific key-value operations
-type KeyValueRepository interface {
-	// Basic KV operations
-	Get(ctx context.Context, key string, dest interface{}) error
-	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
-	Delete(ctx context.Context, key string) error
-	Exists(ctx context.Context, key string) (bool, error)
-
-	// Batch operations
-	MGet(ctx context.Context, keys []string, dest interface{}) error
-	MSet(ctx context.Context, pairs map[string]interface{}, ttl time.Duration) error
-	MDelete(ctx context.Context, keys []string) error
-
-	// Advanced operations
-	Increment(ctx context.Context, key string, delta int64) (int64, error)
-	Expire(ctx context.Context, key string, ttl time.Duration) error
-	TTL(ctx context.Context, key string) (time.Duration, error)
-
-	// Pattern operations
-	Keys(ctx context.Context, pattern string) ([]string, error)
-	Scan(ctx context.Context, cursor uint64, pattern string, count int64) ([]string, uint64, error)
-}
-
 // AsKeyValue returns the repository as a KeyValueRepository interface
-func (r *Repository) AsKeyValue() KeyValueRepository {
+func (r *Repository) AsKeyValue() gpa.KeyValueRepository {
 	return &KeyValueAdapter{r}
 }
 
@@ -430,7 +427,7 @@ func (r *Repository) Create(ctx context.Context, entity interface{}) error {
 	}
 
 	key := fmt.Sprintf("%v", id)
-	return r.Set(ctx, key, entity, 0) // No TTL for created entities
+	return r.Set(ctx, key, entity) // No TTL for created entities
 }
 
 // CreateBatch creates multiple entities
@@ -454,7 +451,7 @@ func (r *Repository) CreateBatch(ctx context.Context, entities interface{}) erro
 		pairs[key] = entity
 	}
 
-	return r.MSet(ctx, pairs, 0)
+	return r.MSet(ctx, pairs)
 }
 
 // FindByID retrieves an entity by its ID

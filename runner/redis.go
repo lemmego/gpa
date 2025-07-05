@@ -254,7 +254,7 @@ func demoKeyValueOperations(ctx context.Context, provider gpa.Provider) {
 	}
 
 	// Set configuration
-	err := kvRepo.Set(ctx, "app:config", config, 0)
+	err := kvRepo.Set(ctx, "app:config", config)
 	if err != nil {
 		log.Printf("Error setting config: %v", err)
 		return
@@ -278,7 +278,7 @@ func demoKeyValueOperations(ctx context.Context, provider gpa.Provider) {
 		"user:preferences:user1": map[string]string{"theme": "dark", "lang": "en"},
 	}
 
-	err = kvRepo.MSet(ctx, userStats, time.Hour*24)
+	err = kvRepo.MSetWithTTL(ctx, userStats, time.Hour*24)
 	if err != nil {
 		log.Printf("Error batch setting: %v", err)
 		return
@@ -431,7 +431,7 @@ func demoCaching(ctx context.Context, provider gpa.Provider) {
 	}
 
 	// Cache for 30 seconds
-	err := kvRepo.Set(ctx, "cache:expensive_computation", expensiveResult, time.Second*30)
+	err := kvRepo.SetWithTTL(ctx, "cache:expensive_computation", expensiveResult, time.Second*30)
 	if err != nil {
 		log.Printf("Error caching result: %v", err)
 		return
@@ -471,7 +471,7 @@ func demoCaching(ctx context.Context, provider gpa.Provider) {
 	}
 
 	// Cache products for 1 hour
-	err = kvRepo.MSet(ctx, products, time.Hour)
+	err = kvRepo.MSetWithTTL(ctx, products, time.Hour)
 	if err != nil {
 		log.Printf("Error caching products: %v", err)
 	} else {
@@ -519,14 +519,14 @@ func demoSessionManagement(ctx context.Context, provider gpa.Provider) {
 	// Store sessions with auto-expiry
 	for _, session := range sessions {
 		ttl := time.Until(session.ExpiresAt)
-		err := kvRepo.Set(ctx, "session:"+session.ID, session, ttl)
+		err := kvRepo.SetWithTTL(ctx, "session:"+session.ID, session, ttl)
 		if err != nil {
 			log.Printf("Error storing session: %v", err)
 			continue
 		}
 
 		// Also store user->session mapping
-		err = kvRepo.Set(ctx, "user_session:"+session.UserID, session.ID, ttl)
+		err = kvRepo.SetWithTTL(ctx, "user_session:"+session.UserID, session.ID, ttl)
 		if err != nil {
 			log.Printf("Error storing user session mapping: %v", err)
 		}
@@ -636,7 +636,7 @@ func demoRealTimeAnalytics(ctx context.Context, provider gpa.Provider) {
 	}
 
 	for _, event := range events {
-		err := kvRepo.Set(ctx, "events:"+event.ID, event, time.Hour*24)
+		err := kvRepo.SetWithTTL(ctx, "events:"+event.ID, event, time.Hour*24)
 		if err != nil {
 			log.Printf("Error storing event: %v", err)
 		}

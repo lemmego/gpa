@@ -12,47 +12,146 @@ import (
 // Core Interfaces
 // =====================================
 
-// Repository is the main interface for database operations
+// Repository is the main interface for database operations.
+// This is the universal interface implemented by all database adapters (SQL, Document, KV, etc.)
+// It provides CRUD operations, querying, and metadata access in a database-agnostic way.
 type Repository interface {
-	// Basic CRUD operations
+	// ===============================
+	// Basic CRUD Operations
+	// ===============================
+	
+	// Create inserts a new entity into the database.
+	// The entity must have an ID field that will be used as the primary key.
+	// Returns error if the entity already exists or validation fails.
 	Create(ctx context.Context, entity interface{}) error
+	
+	// CreateBatch inserts multiple entities in a single operation for better performance.
+	// Expects a slice of entities. May not be atomic depending on the database.
+	// Returns error if any entity fails to insert.
 	CreateBatch(ctx context.Context, entities interface{}) error
+	
+	// FindByID retrieves a single entity by its primary key.
+	// The dest parameter must be a pointer to the entity type.
+	// Returns ErrorTypeNotFound if the entity doesn't exist.
 	FindByID(ctx context.Context, id interface{}, dest interface{}) error
+	
+	// FindAll retrieves all entities of a type, optionally filtered by query options.
+	// The dest parameter must be a pointer to a slice of the entity type.
+	// Use QueryOptions like Where(), Limit(), OrderBy() to filter and sort results.
 	FindAll(ctx context.Context, dest interface{}, opts ...QueryOption) error
+	
+	// Update modifies an existing entity. The entity must have an ID field.
+	// Replaces the entire entity with the new values.
+	// Returns ErrorTypeNotFound if the entity doesn't exist.
 	Update(ctx context.Context, entity interface{}) error
+	
+	// UpdatePartial modifies specific fields of an entity without replacing the whole entity.
+	// The updates map contains field names as keys and new values as values.
+	// Returns ErrorTypeNotFound if the entity doesn't exist.
 	UpdatePartial(ctx context.Context, id interface{}, updates map[string]interface{}) error
+	
+	// Delete removes an entity by its primary key.
+	// Returns ErrorTypeNotFound if the entity doesn't exist.
 	Delete(ctx context.Context, id interface{}) error
+	
+	// DeleteByCondition removes all entities matching the given condition.
+	// Use Where() conditions to specify which entities to delete.
+	// Returns the number of deleted entities through the database's specific mechanisms.
 	DeleteByCondition(ctx context.Context, condition Condition) error
 
-	// Query operations
+	// ===============================
+	// Query Operations
+	// ===============================
+	
+	// Query retrieves entities based on the provided query options.
+	// More flexible than FindAll, supports complex conditions, joins, subqueries.
+	// The dest parameter must be a pointer to a slice of the entity type.
 	Query(ctx context.Context, dest interface{}, opts ...QueryOption) error
+	
+	// QueryOne retrieves a single entity based on query options.
+	// Equivalent to Query() with Limit(1) but returns ErrorTypeNotFound if no match.
+	// The dest parameter must be a pointer to the entity type.
 	QueryOne(ctx context.Context, dest interface{}, opts ...QueryOption) error
+	
+	// Count returns the number of entities matching the query options.
+	// Does not retrieve the actual entities, just counts them.
+	// Useful for pagination and analytics.
 	Count(ctx context.Context, opts ...QueryOption) (int64, error)
+	
+	// Exists checks if any entities match the query options.
+	// More efficient than Count() when you only need to know if matches exist.
+	// Returns true if at least one entity matches, false otherwise.
 	Exists(ctx context.Context, opts ...QueryOption) (bool, error)
 
-	// Advanced operations
+	// ===============================
+	// Advanced Operations
+	// ===============================
+	
+	// Transaction executes a function within a database transaction.
+	// If the function returns an error, the transaction is rolled back.
+	// If the function completes successfully, the transaction is committed.
+	// Not all databases support transactions (e.g., some NoSQL databases).
 	Transaction(ctx context.Context, fn TransactionFunc) error
+	
+	// RawQuery executes a database-specific query and returns results.
+	// The query string and args format depend on the database type:
+	// - SQL: "SELECT * FROM users WHERE age > ?" with args [18]
+	// - MongoDB: Pipeline stages with aggregation
+	// - Redis: Redis commands
 	RawQuery(ctx context.Context, query string, args []interface{}, dest interface{}) error
+	
+	// RawExec executes a database-specific command that doesn't return data.
+	// Used for database-specific operations like creating indexes, triggers, etc.
+	// Returns a Result object with information about rows affected, etc.
 	RawExec(ctx context.Context, query string, args []interface{}) (Result, error)
 
-	// Metadata
+	// ===============================
+	// Metadata Operations
+	// ===============================
+	
+	// GetEntityInfo returns metadata about an entity type.
+	// Includes field information, primary keys, indexes, and relationships.
+	// Useful for reflection, validation, and building dynamic UIs.
 	GetEntityInfo(entity interface{}) (*EntityInfo, error)
+	
+	// Close closes the repository and releases any resources.
+	// Should be called when the repository is no longer needed.
+	// May close database connections, file handles, etc.
 	Close() error
 }
 
 // TransactionFunc represents a function that runs within a transaction
 type TransactionFunc func(tx Transaction) error
 
-// Transaction interface for transactional operations
+// Transaction interface for transactional operations.
+// Extends Repository with commit/rollback functionality for ACID operations.
+// Not all databases support transactions (e.g., Redis, some NoSQL databases).
 type Transaction interface {
 	Repository
+	
+	// Commit permanently saves all changes made within this transaction.
+	// Once committed, changes cannot be rolled back.
+	// Returns error if the commit fails (e.g., constraint violations).
 	Commit() error
+	
+	// Rollback discards all changes made within this transaction.
+	// Returns the database to the state before the transaction began.
+	// Returns error if the rollback fails (rare, usually indicates serious issues).
 	Rollback() error
 }
 
-// Result represents the result of a database operation
+// Result represents the result of a database operation that doesn't return data.
+// Provides information about what happened during INSERT, UPDATE, DELETE operations.
+// Similar to sql.Result in the standard library but database-agnostic.
 type Result interface {
+	// LastInsertId returns the ID of the last inserted record.
+	// Only meaningful for databases that auto-generate IDs (SQL with auto-increment).
+	// May return 0 for databases that don't support this concept.
 	LastInsertId() (int64, error)
+	
+	// RowsAffected returns the number of rows affected by the operation.
+	// Useful for UPDATE and DELETE operations to see how many records changed.
+	// For batch operations, returns the total number of affected rows.
 	RowsAffected() (int64, error)
 }
 
@@ -60,19 +159,55 @@ type Result interface {
 // Provider and Configuration
 // =====================================
 
-// Provider is the main interface for creating repositories
+// Provider is the main interface for creating and managing database repositories.
+// Acts as a factory for repositories and manages database connections and configuration.
+// Each database adapter (GORM, Bun, MongoDB, Redis) implements this interface.
 type Provider interface {
-	// Repository creation
+	// ===============================
+	// Repository Creation
+	// ===============================
+	
+	// Repository creates a new repository for the given entity type.
+	// The entityType should be a reflect.Type representing your entity struct.
+	// Example: provider.Repository(reflect.TypeOf(User{}))
 	Repository(entityType reflect.Type) Repository
+	
+	// RepositoryFor creates a new repository for the given entity instance.
+	// More convenient than Repository() when you have an entity instance.
+	// Example: provider.RepositoryFor(&User{})
 	RepositoryFor(entity interface{}) Repository
 
-	// Configuration and lifecycle
+	// ===============================
+	// Configuration and Lifecycle
+	// ===============================
+	
+	// Configure applies new configuration to the provider.
+	// Can be used to change connection settings, pool sizes, etc. at runtime.
+	// May require reconnection depending on what settings changed.
 	Configure(config Config) error
+	
+	// Health checks if the database connection is healthy and responsive.
+	// Returns error if the database is unreachable or not functioning properly.
+	// Useful for health check endpoints and monitoring.
 	Health() error
+	
+	// Close shuts down the provider and releases all resources.
+	// Closes database connections, stops background tasks, etc.
+	// Should be called during application shutdown.
 	Close() error
 
-	// Metadata
+	// ===============================
+	// Metadata and Capabilities
+	// ===============================
+	
+	// SupportedFeatures returns a list of features this provider supports.
+	// Features include things like transactions, full-text search, pub/sub, etc.
+	// Use this to check capabilities before using advanced features.
 	SupportedFeatures() []Feature
+	
+	// ProviderInfo returns metadata about this provider.
+	// Includes provider name, version, database type, and supported features.
+	// Useful for debugging, logging, and feature detection.
 	ProviderInfo() ProviderInfo
 }
 
@@ -289,11 +424,11 @@ const (
 
 // SubQuery represents a subquery
 type SubQuery struct {
-	Query       string
-	Args        []interface{}
-	Type        SubQueryType
-	Field       string // Field for subquery conditions
-	Operator    Operator
+	Query        string
+	Args         []interface{}
+	Type         SubQueryType
+	Field        string // Field for subquery conditions
+	Operator     Operator
 	IsCorrelated bool
 }
 
@@ -557,7 +692,7 @@ func (j joinOption) Apply(q *Query) { q.Joins = append(q.Joins, j.join) }
 
 type subQueryOption struct{ condition SubQueryCondition }
 
-func (s subQueryOption) Apply(q *Query) { 
+func (s subQueryOption) Apply(q *Query) {
 	q.Conditions = append(q.Conditions, s.condition)
 	q.SubQueries = append(q.SubQueries, s.condition.SubQuery)
 }
@@ -633,63 +768,440 @@ const (
 // Specialized Interfaces for Different Database Types
 // =====================================
 
-// SQLRepository extends Repository with SQL-specific operations
+// SQLRepository extends Repository with SQL-specific operations.
+// Implemented by SQL database adapters like GORM, Bun, etc.
+// Provides raw SQL access, relationship loading, and schema management.
 type SQLRepository interface {
 	Repository
 
-	// SQL-specific operations
+	// ===============================
+	// Raw SQL Operations
+	// ===============================
+	
+	// FindBySQL executes a raw SQL SELECT query and maps results to entities.
+	// The dest parameter must be a pointer to a slice of the entity type.
+	// Example: FindBySQL(ctx, "SELECT * FROM users WHERE age > ?", []interface{}{18}, &users)
 	FindBySQL(ctx context.Context, sql string, args []interface{}, dest interface{}) error
+	
+	// ExecSQL executes a raw SQL command that doesn't return entities (INSERT, UPDATE, DELETE, DDL).
+	// Returns a Result with information about rows affected, last insert ID, etc.
+	// Example: ExecSQL(ctx, "UPDATE users SET status = ? WHERE active = ?", "inactive", false)
 	ExecSQL(ctx context.Context, sql string, args ...interface{}) (Result, error)
 
-	// Schema operations
+	// ===============================
+	// Relationship Operations (Convenience)
+	// ===============================
+	
+	// FindWithRelations retrieves entities with their related entities preloaded.
+	// More convenient than using Query() with Preload() options.
+	// The relations slice specifies which relationships to load.
+	// Example: FindWithRelations(ctx, &users, []string{"Posts", "Profile"}, Where("active", "=", true))
+	FindWithRelations(ctx context.Context, dest interface{}, relations []string, opts ...QueryOption) error
+	
+	// FindByIDWithRelations retrieves a single entity by ID with relationships preloaded.
+	// Combines FindByID() with relationship loading for convenience.
+	// Example: FindByIDWithRelations(ctx, userID, &user, []string{"Posts", "Comments"})
+	FindByIDWithRelations(ctx context.Context, id interface{}, dest interface{}, relations []string) error
+
+	// ===============================
+	// Schema Management
+	// ===============================
+	
+	// CreateTable creates a new table based on the entity structure.
+	// Analyzes the entity's fields, tags, and relationships to generate appropriate SQL.
+	// May create foreign key constraints, indexes, and other database objects.
 	CreateTable(ctx context.Context, entity interface{}) error
+	
+	// DropTable removes a table from the database.
+	// WARNING: This permanently deletes all data in the table.
+	// May fail if there are foreign key constraints pointing to this table.
 	DropTable(ctx context.Context, entity interface{}) error
+	
+	// MigrateTable updates an existing table to match the entity structure.
+	// Adds missing columns, indexes, constraints, etc. Usually doesn't drop existing columns.
+	// Use this for schema evolution during application updates.
 	MigrateTable(ctx context.Context, entity interface{}) error
 
-	// Index operations
+	// ===============================
+	// Index Management
+	// ===============================
+	
+	// CreateIndex creates a database index on the specified fields.
+	// Improves query performance but may slow down write operations.
+	// The unique parameter determines if the index enforces uniqueness.
 	CreateIndex(ctx context.Context, entity interface{}, fields []string, unique bool) error
+	
+	// DropIndex removes an existing index from the database.
+	// The indexName should match the name used when the index was created.
+	// May improve write performance but will slow down relevant queries.
 	DropIndex(ctx context.Context, entity interface{}, indexName string) error
 }
 
-// NoSQLRepository extends Repository with NoSQL-specific operations
-type NoSQLRepository interface {
+// DocumentRepository extends Repository with document database operations.
+// Implemented by document store adapters like MongoDB, CouchDB, etc.
+// Works with JSON-like documents, collections, and aggregation pipelines.
+type DocumentRepository interface {
 	Repository
 
-	// Document operations
+	// ===============================
+	// Document Operations
+	// ===============================
+	
+	// FindByDocument finds documents that match the given document structure.
+	// The document parameter acts as a query template - fields with values become filters.
+	// Example: FindByDocument(ctx, map[string]interface{}{"status": "active", "age": map[string]interface{}{"$gt": 18}}, &users)
 	FindByDocument(ctx context.Context, document map[string]interface{}, dest interface{}) error
+	
+	// UpdateDocument updates a document by merging the provided fields.
+	// Only the fields present in the document map are updated; others remain unchanged.
+	// Example: UpdateDocument(ctx, userID, map[string]interface{}{"lastLogin": time.Now(), "status": "online"})
 	UpdateDocument(ctx context.Context, id interface{}, document map[string]interface{}) error
 
-	// Collection operations
+	// ===============================
+	// Collection Management
+	// ===============================
+	
+	// CreateCollection creates a new collection (equivalent to a table in SQL).
+	// Some document databases automatically create collections when documents are inserted.
+	// May accept options like capped collections, validation rules, etc.
 	CreateCollection(ctx context.Context, name string) error
+	
+	// DropCollection removes a collection and all its documents.
+	// WARNING: This permanently deletes all data in the collection.
+	// Use with caution as this operation cannot be undone.
 	DropCollection(ctx context.Context, name string) error
+	
+	// ListCollections returns the names of all collections in the database.
+	// Useful for discovery, administration, and dynamic collection management.
+	// May exclude system collections depending on the implementation.
 	ListCollections(ctx context.Context) ([]string, error)
 
-	// Aggregation
+	// ===============================
+	// Aggregation and Analytics
+	// ===============================
+	
+	// Aggregate executes an aggregation pipeline for complex data processing.
+	// The pipeline is a series of stages that transform, filter, group, and analyze documents.
+	// Example: Aggregate(ctx, []map[string]interface{}{{"$group": {"_id": "$status", "count": {"$sum": 1}}}}, &results)
 	Aggregate(ctx context.Context, pipeline []map[string]interface{}, dest interface{}) error
 }
 
-// KeyValueRepository for key-value stores
-type KeyValueRepository interface {
-	// Basic KV operations
-	Get(ctx context.Context, key string, dest interface{}) error
-	Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
-	Delete(ctx context.Context, key string) error
-	Exists(ctx context.Context, key string) (bool, error)
+// WideColumnRepository extends Repository with wide-column store operations.
+// Implemented by wide-column adapters like Cassandra, HBase, ScyllaDB, DynamoDB.
+// Organizes data in column families with flexible schemas and high scalability.
+type WideColumnRepository interface {
+	Repository
+
+	// ===============================
+	// Column Family Management
+	// ===============================
+	
+	// CreateColumnFamily creates a new column family (similar to a table).
+	// Options may include replication factor, consistency levels, compaction strategy.
+	// Example: CreateColumnFamily(ctx, "user_posts", map[string]interface{}{"replication_factor": 3})
+	CreateColumnFamily(ctx context.Context, name string, options map[string]interface{}) error
+	
+	// DropColumnFamily removes a column family and all its data.
+	// WARNING: This permanently deletes all data in the column family.
+	DropColumnFamily(ctx context.Context, name string) error
+	
+	// ListColumnFamilies returns all column families in the keyspace/database.
+	ListColumnFamilies(ctx context.Context) ([]string, error)
+
+	// ===============================
+	// Row and Column Operations
+	// ===============================
+	
+	// InsertRow inserts or updates a row with the specified columns.
+	// Wide-column stores allow different rows to have different columns (flexible schema).
+	// Example: InsertRow(ctx, "users", "user123", map[string]interface{}{"name": "John", "email": "john@example.com"})
+	InsertRow(ctx context.Context, columnFamily string, rowKey string, columns map[string]interface{}) error
+	
+	// GetRow retrieves all columns for a specific row.
+	// Returns all columns and their values for the given row key.
+	GetRow(ctx context.Context, columnFamily string, rowKey string, dest interface{}) error
+	
+	// GetColumn retrieves a specific column value from a row.
+	// More efficient than GetRow when you only need one column.
+	GetColumn(ctx context.Context, columnFamily string, rowKey string, columnName string, dest interface{}) error
+	DeleteRow(ctx context.Context, columnFamily string, rowKey string) error
+	DeleteColumn(ctx context.Context, columnFamily string, rowKey string, columnName string) error
+
+	// Range queries
+	GetRowRange(ctx context.Context, columnFamily string, startKey, endKey string, dest interface{}) error
+	GetColumnRange(ctx context.Context, columnFamily string, rowKey string, startColumn, endColumn string, dest interface{}) error
 
 	// Batch operations
+	BatchInsert(ctx context.Context, columnFamily string, rows map[string]map[string]interface{}) error
+	BatchDelete(ctx context.Context, columnFamily string, rowKeys []string) error
+
+	// Consistency and timestamps
+	InsertWithTimestamp(ctx context.Context, columnFamily string, rowKey string, columns map[string]interface{}, timestamp int64) error
+	GetWithConsistency(ctx context.Context, columnFamily string, rowKey string, consistency ConsistencyLevel, dest interface{}) error
+}
+
+// GraphRepository extends Repository with graph database operations
+type GraphRepository interface {
+	Repository
+
+	// Vertex operations
+	CreateVertex(ctx context.Context, label string, properties map[string]interface{}) (string, error)
+	GetVertex(ctx context.Context, id string, dest interface{}) error
+	UpdateVertex(ctx context.Context, id string, properties map[string]interface{}) error
+	DeleteVertex(ctx context.Context, id string) error
+	FindVertices(ctx context.Context, label string, properties map[string]interface{}, dest interface{}) error
+
+	// Edge operations
+	CreateEdge(ctx context.Context, fromVertexID, toVertexID string, label string, properties map[string]interface{}) (string, error)
+	GetEdge(ctx context.Context, id string, dest interface{}) error
+	UpdateEdge(ctx context.Context, id string, properties map[string]interface{}) error
+	DeleteEdge(ctx context.Context, id string) error
+	FindEdges(ctx context.Context, label string, properties map[string]interface{}, dest interface{}) error
+
+	// Relationship queries
+	GetVertexEdges(ctx context.Context, vertexID string, direction EdgeDirection, edgeLabel string, dest interface{}) error
+	GetNeighbors(ctx context.Context, vertexID string, direction EdgeDirection, edgeLabel string, dest interface{}) error
+
+	// Path and traversal operations
+	FindShortestPath(ctx context.Context, fromVertexID, toVertexID string, maxDepth int, dest interface{}) error
+	TraverseGraph(ctx context.Context, startVertexID string, traversal GraphTraversal, dest interface{}) error
+
+	// Graph algorithms
+	PageRank(ctx context.Context, iterations int, dampingFactor float64, dest interface{}) error
+	ConnectedComponents(ctx context.Context, dest interface{}) error
+
+	// Cypher/Gremlin query support
+	ExecuteGraphQuery(ctx context.Context, query string, parameters map[string]interface{}, dest interface{}) error
+}
+
+// ConsistencyLevel represents consistency levels for wide-column stores
+type ConsistencyLevel string
+
+const (
+	ConsistencyOne    ConsistencyLevel = "ONE"
+	ConsistencyQuorum ConsistencyLevel = "QUORUM"
+	ConsistencyAll    ConsistencyLevel = "ALL"
+	ConsistencyLocal  ConsistencyLevel = "LOCAL"
+	ConsistencyAny    ConsistencyLevel = "ANY"
+)
+
+// EdgeDirection represents edge direction in graph queries
+type EdgeDirection string
+
+const (
+	EdgeDirectionIn   EdgeDirection = "IN"
+	EdgeDirectionOut  EdgeDirection = "OUT"
+	EdgeDirectionBoth EdgeDirection = "BOTH"
+)
+
+// GraphTraversal represents graph traversal configuration
+type GraphTraversal struct {
+	MaxDepth     int
+	Direction    EdgeDirection
+	EdgeLabels   []string
+	VertexFilter map[string]interface{}
+	EdgeFilter   map[string]interface{}
+	Unique       bool
+}
+
+// =====================================
+// Hierarchical KV Interfaces
+// =====================================
+
+// BasicKeyValueRepository provides the minimal interface supported by ALL key-value stores.
+// This is the foundation interface that every KV database can implement, from simple
+// caches like Memcached to complex systems like Redis. Designed for maximum compatibility.
+type BasicKeyValueRepository interface {
+	// ===============================
+	// Core Key-Value Operations
+	// ===============================
+	
+	// Get retrieves a value by its key.
+	// The dest parameter must be a pointer to the target type.
+	// Returns ErrorTypeNotFound if the key doesn't exist.
+	// Example: Get(ctx, "user:123", &user)
+	Get(ctx context.Context, key string, dest interface{}) error
+	
+	// Set stores a value with the given key.
+	// Overwrites existing values. No TTL support in basic interface.
+	// Example: Set(ctx, "user:123", user)
+	Set(ctx context.Context, key string, value interface{}) error
+	
+	// Delete removes a key-value pair.
+	// Returns no error if the key doesn't exist (idempotent operation).
+	// Example: Delete(ctx, "user:123")
+	Delete(ctx context.Context, key string) error
+	
+	// Exists checks if a key exists in the store.
+	// More efficient than Get when you only need to check existence.
+	// Example: exists, err := Exists(ctx, "user:123")
+	Exists(ctx context.Context, key string) (bool, error)
+}
+
+// BatchKeyValueRepository extends BasicKeyValueRepository with batch operations.
+// Provides multi-key operations for better performance when working with multiple keys.
+// Supported by most KV stores except very basic ones like simple Memcached.
+type BatchKeyValueRepository interface {
+	BasicKeyValueRepository
+
+	// ===============================
+	// Batch Operations
+	// ===============================
+	
+	// MGet retrieves multiple values by their keys in a single operation.
+	// Much more efficient than multiple Get() calls, especially over networks.
+	// The dest parameter must be a pointer to a slice to hold the results.
+	// Example: MGet(ctx, []string{"user:1", "user:2"}, &users)
 	MGet(ctx context.Context, keys []string, dest interface{}) error
-	MSet(ctx context.Context, pairs map[string]interface{}, ttl time.Duration) error
+	
+	// MSet stores multiple key-value pairs in a single operation.
+	// The pairs map contains keys as map keys and values as map values.
+	// Example: MSet(ctx, map[string]interface{}{"user:1": user1, "user:2": user2})
+	MSet(ctx context.Context, pairs map[string]interface{}) error
+	
+	// MDelete removes multiple keys in a single operation.
+	// More efficient than multiple Delete() calls.
+	// Example: MDelete(ctx, []string{"user:1", "user:2", "user:3"})
 	MDelete(ctx context.Context, keys []string) error
+}
 
-	// Advanced operations
-	Increment(ctx context.Context, key string, delta int64) (int64, error)
+// TTLKeyValueRepository extends BasicKeyValueRepository with Time-To-Live support.
+// Allows setting expiration times on keys for automatic cleanup.
+// Supported by Redis, ElastiCache, but not basic Memcached or embedded stores like RocksDB.
+type TTLKeyValueRepository interface {
+	BasicKeyValueRepository
+
+	// ===============================
+	// TTL Operations
+	// ===============================
+	// SetWithTTL stores a value with an expiration time.
+	// The key will be automatically deleted after the TTL expires.
+	// TTL of 0 means no expiration (equivalent to basic Set).
+	// Example: SetWithTTL(ctx, "session:abc", session, 30*time.Minute)
+	SetWithTTL(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+	
+	// Expire sets or updates the TTL for an existing key.
+	// Useful for extending session timeouts or implementing cache refresh.
+	// Example: Expire(ctx, "session:abc", 15*time.Minute)
 	Expire(ctx context.Context, key string, ttl time.Duration) error
+	
+	// TTL returns the remaining time until the key expires.
+	// Returns -1 if the key has no expiration, -2 if the key doesn't exist.
+	// Example: remaining, err := TTL(ctx, "session:abc")
 	TTL(ctx context.Context, key string) (time.Duration, error)
+}
 
-	// Pattern operations
+// IncrementKeyValueRepository extends BasicKeyValueRepository with atomic numeric operations.
+// Provides thread-safe counters and numeric operations without race conditions.
+// Essential for counters, metrics, and distributed coordination. Supported by Redis, not by basic stores.
+type IncrementKeyValueRepository interface {
+	BasicKeyValueRepository
+
+	// ===============================
+	// Atomic Numeric Operations
+	// ===============================
+	// Increment atomically adds delta to a numeric value.
+	// Creates the key with value 0 if it doesn't exist, then adds delta.
+	// Returns the new value after incrementing.
+	// Example: newCount, err := Increment(ctx, "page:views", 1)
+	Increment(ctx context.Context, key string, delta int64) (int64, error)
+	
+	// Decrement atomically subtracts delta from a numeric value.
+	// Creates the key with value 0 if it doesn't exist, then subtracts delta.
+	// Returns the new value after decrementing.
+	// Example: remaining, err := Decrement(ctx, "quota:user123", 1)
+	Decrement(ctx context.Context, key string, delta int64) (int64, error)
+}
+
+// PatternKeyValueRepository extends BasicKeyValueRepository with pattern-based operations.
+// Allows key discovery and bulk operations based on patterns.
+// Very powerful but can be expensive on large datasets. Primarily supported by Redis.
+type PatternKeyValueRepository interface {
+	BasicKeyValueRepository
+
+	// ===============================
+	// Pattern and Discovery Operations
+	// ===============================
+	// Keys returns all keys matching the given pattern.
+	// Use '*' for wildcards, '?' for single characters.
+	// WARNING: Can be slow on large datasets, use Scan for production.
+	// Example: Keys(ctx, "user:*") returns ["user:1", "user:2", ...]
 	Keys(ctx context.Context, pattern string) ([]string, error)
+	
+	// Scan iterates through keys matching a pattern using cursor-based pagination.
+	// More efficient than Keys() for large datasets as it doesn't block the database.
+	// Returns keys and a new cursor for the next iteration (0 when done).
+	// Example: keys, cursor, err := Scan(ctx, 0, "user:*", 100)
 	Scan(ctx context.Context, cursor uint64, pattern string, count int64) ([]string, uint64, error)
 }
+
+// AdvancedKeyValueRepository combines all KV capabilities for feature-rich stores like Redis.
+// Provides the full spectrum of key-value operations including batching, TTL, atomics, and patterns.
+// Only the most advanced KV stores (Redis, Hazelcast) implement this complete interface.
+type AdvancedKeyValueRepository interface {
+	BatchKeyValueRepository
+	TTLKeyValueRepository
+	IncrementKeyValueRepository
+	PatternKeyValueRepository
+}
+
+// KeyValueRepository provides backward compatibility and defaults to the advanced interface.
+// Legacy applications can continue using this while new code should use specific capability interfaces.
+// Enables gradual migration and type assertions for capability detection.
+type KeyValueRepository interface {
+	AdvancedKeyValueRepository
+}
+
+// =====================================
+// Database Classification Examples
+// =====================================
+
+/*
+Database capabilities by type:
+
+**SQL Databases:**
+- PostgreSQL, MySQL, SQLite: SQLRepository
+- SQL Server, Oracle: SQLRepository
+
+**Document Stores:**
+- MongoDB: DocumentRepository
+- CouchDB: DocumentRepository
+- Amazon DocumentDB: DocumentRepository
+- ArangoDB: DocumentRepository + GraphRepository
+
+**Key-Value Stores:**
+- Simple KV: Memcached → BasicKeyValueRepository
+- Advanced Memory: Redis → AdvancedKeyValueRepository + specialized data structures
+- Embedded KV: RocksDB, LevelDB → BasicKeyValueRepository + BatchKeyValueRepository
+- Cloud KV: Amazon ElastiCache → BasicKeyValueRepository + TTLKeyValueRepository
+
+**Wide-Column Stores:**
+- Cassandra: WideColumnRepository
+- HBase: WideColumnRepository  
+- ScyllaDB: WideColumnRepository
+- Amazon DynamoDB: WideColumnRepository (with KV access via BasicKeyValueRepository)
+- Google Bigtable: WideColumnRepository
+
+**Graph Databases:**
+- Neo4j: GraphRepository
+- Amazon Neptune: GraphRepository
+- ArangoDB: DocumentRepository + GraphRepository
+- OrientDB: DocumentRepository + GraphRepository
+- JanusGraph: GraphRepository
+
+**Multi-Model Databases:**
+- ArangoDB: DocumentRepository + GraphRepository
+- CosmosDB: DocumentRepository + WideColumnRepository + GraphRepository
+- OrientDB: DocumentRepository + GraphRepository
+
+**Usage Recommendations:**
+- Use the most specific interface for your database type (SQLRepository vs DocumentRepository)
+- For KV stores: Use BasicKeyValueRepository for maximum compatibility
+- Check capabilities via type assertions: repo.(TTLKeyValueRepository)
+- Use Preload() QueryOption for relationships in base Repository interface
+- Use FindWithRelations() methods via SQLRepository interface for convenience
+- Multi-model databases can implement multiple interfaces (e.g., ArangoDB: DocumentRepository + GraphRepository)
+*/
 
 // =====================================
 // Events and Hooks
@@ -713,16 +1225,16 @@ type EventHook interface {
 type ErrorType string
 
 const (
-	ErrorTypeConnection     ErrorType = "connection"
-	ErrorTypeConstraint     ErrorType = "constraint"
-	ErrorTypeNotFound       ErrorType = "not_found"
-	ErrorTypeDuplicate      ErrorType = "duplicate"
-	ErrorTypeTimeout        ErrorType = "timeout"
-	ErrorTypeTransaction    ErrorType = "transaction"
-	ErrorTypeValidation     ErrorType = "validation"
-	ErrorTypeUnsupported    ErrorType = "unsupported"
-	ErrorTypeDatabase       ErrorType = "database"
-	ErrorTypeSerialization  ErrorType = "serialization"
+	ErrorTypeConnection      ErrorType = "connection"
+	ErrorTypeConstraint      ErrorType = "constraint"
+	ErrorTypeNotFound        ErrorType = "not_found"
+	ErrorTypeDuplicate       ErrorType = "duplicate"
+	ErrorTypeTimeout         ErrorType = "timeout"
+	ErrorTypeTransaction     ErrorType = "transaction"
+	ErrorTypeValidation      ErrorType = "validation"
+	ErrorTypeUnsupported     ErrorType = "unsupported"
+	ErrorTypeDatabase        ErrorType = "database"
+	ErrorTypeSerialization   ErrorType = "serialization"
 	ErrorTypeInvalidArgument ErrorType = "invalid_argument"
 )
 

@@ -412,7 +412,7 @@ func (suite *RedisSpecificOperationsTestSuite) TestBatchOperations() {
 	
 	// MSet large batch
 	start := time.Now()
-	err := suite.redisRepo.MSet(suite.ctx, pairs, 0)
+	err := suite.redisRepo.MSet(suite.ctx, pairs)
 	duration := time.Since(start)
 	assert.NoError(suite.T(), err)
 	suite.T().Logf("MSet 1000 keys took: %v", duration)

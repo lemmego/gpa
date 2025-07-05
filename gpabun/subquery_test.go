@@ -36,7 +36,7 @@ func TestSubQueryWithBun(t *testing.T) {
 	sqlUserRepo := userRepo.(gpa.SQLRepository)
 	err = sqlUserRepo.CreateTable(ctx, &TestUser{})
 	require.NoError(t, err)
-	
+
 	sqlOrderRepo := orderRepo.(gpa.SQLRepository)
 	err = sqlOrderRepo.CreateTable(ctx, &TestOrder{})
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestSubQueryWithBun(t *testing.T) {
 		assert.NoError(t, err)
 		// This should find users who are active (Alice and Bob both have orders and are active)
 		assert.GreaterOrEqual(t, len(usersWithOrders), 0) // At least should not error
-		
+
 		if len(usersWithOrders) > 0 {
 			// Verify some users were found
 			names := make([]string, len(usersWithOrders))
@@ -94,7 +94,7 @@ func TestSubQueryWithBun(t *testing.T) {
 		assert.NoError(t, err)
 		// Should find all users since no user has status 'nonexistent'
 		assert.GreaterOrEqual(t, len(usersWithoutOrders), 3) // Should find all 3 users
-		
+
 		if len(usersWithoutOrders) > 0 {
 			names := make([]string, len(usersWithoutOrders))
 			for i, user := range usersWithoutOrders {
@@ -147,7 +147,7 @@ func TestSubQueryWithBun(t *testing.T) {
 		assert.NoError(t, err)
 		// Should find active users (Alice and Bob)
 		assert.GreaterOrEqual(t, len(result), 0) // At least should not error
-		
+
 		if len(result) > 0 {
 			t.Logf("Found users with complex query: %v", result[0].Name)
 		}
@@ -259,7 +259,7 @@ func TestSubQueryWithUpdatesAndDeletes(t *testing.T) {
 	sqlUserRepo := userRepo.(gpa.SQLRepository)
 	err = sqlUserRepo.CreateTable(ctx, &TestUser{})
 	require.NoError(t, err)
-	
+
 	sqlOrderRepo := orderRepo.(gpa.SQLRepository)
 	err = sqlOrderRepo.CreateTable(ctx, &TestOrder{})
 	require.NoError(t, err)
@@ -284,11 +284,11 @@ func TestSubQueryWithUpdatesAndDeletes(t *testing.T) {
 		// This would delete users who have pending orders
 		// Note: We're testing the query building, actual deletion depends on the DELETE implementation
 		condition := gpa.ExistsSubQuery("SELECT 1 FROM test_orders WHERE test_orders.user_id = test_users.id AND status = ?", "pending")
-		
+
 		// Apply the condition to verify it builds correctly
 		query := &gpa.Query{}
 		condition.Apply(query)
-		
+
 		assert.Len(t, query.SubQueries, 1)
 		assert.Equal(t, gpa.SubQueryTypeExists, query.SubQueries[0].Type)
 	})

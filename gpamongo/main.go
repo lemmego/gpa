@@ -209,7 +209,7 @@ func (p *Provider) ProviderInfo() gpa.ProviderInfo {
 // Repository Implementation
 // =====================================
 
-// Repository implements gpa.Repository and gpa.NoSQLRepository using MongoDB
+// Repository implements gpa.Repository and gpa.DocumentRepository using MongoDB
 type Repository struct {
 	database   *mongo.Database
 	client     *mongo.Client

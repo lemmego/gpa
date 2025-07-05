@@ -132,7 +132,7 @@ func (r *Repository) Update(ctx context.Context, entity interface{}) error {
 		}
 	}
 
-	return r.Set(ctx, key, entity, 0)
+	return r.Set(ctx, key, entity)
 }
 
 // UpdatePartial updates specific fields of an entity

@@ -776,20 +776,20 @@ func (r *Repository) buildConditionPart(condition gpa.Condition) (string, []inte
 // applySubQueryConditionToSelect applies a subquery condition to a select query
 func (r *Repository) applySubQueryConditionToSelect(query *bun.SelectQuery, condition gpa.SubQueryCondition) *bun.SelectQuery {
 	subQuery := condition.SubQuery
-	
+
 	switch subQuery.Type {
 	case gpa.SubQueryTypeExists:
 		if subQuery.Operator == gpa.OpNotExists {
 			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
 		}
 		return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
-		
+
 	case gpa.SubQueryTypeIn:
 		if subQuery.Operator == gpa.OpNotInSubQuery {
 			return query.Where("? NOT IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
 		}
 		return query.Where("? IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
-		
+
 	case gpa.SubQueryTypeCorrelated:
 		// Correlated subqueries can use EXISTS or scalar operators
 		switch subQuery.Operator {
@@ -812,7 +812,7 @@ func (r *Repository) applySubQueryConditionToSelect(query *bun.SelectQuery, cond
 		default:
 			return query.Where(condition.String())
 		}
-		
+
 	case gpa.SubQueryTypeScalar:
 		// For scalar subqueries, use the operator directly
 		switch subQuery.Operator {
@@ -831,7 +831,7 @@ func (r *Repository) applySubQueryConditionToSelect(query *bun.SelectQuery, cond
 		default:
 			return query.Where(condition.String())
 		}
-		
+
 	default:
 		// Fallback to string representation
 		return query.Where(condition.String())
@@ -1189,20 +1189,20 @@ func (r *Repository) applyConditionToUpdate(query *bun.UpdateQuery, condition gp
 // applySubQueryConditionToDelete applies a subquery condition to a delete query
 func (r *Repository) applySubQueryConditionToDelete(query *bun.DeleteQuery, condition gpa.SubQueryCondition) *bun.DeleteQuery {
 	subQuery := condition.SubQuery
-	
+
 	switch subQuery.Type {
 	case gpa.SubQueryTypeExists:
 		if subQuery.Operator == gpa.OpNotExists {
 			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
 		}
 		return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
-		
+
 	case gpa.SubQueryTypeIn:
 		if subQuery.Operator == gpa.OpNotInSubQuery {
 			return query.Where("? NOT IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
 		}
 		return query.Where("? IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
-		
+
 	case gpa.SubQueryTypeCorrelated:
 		switch subQuery.Operator {
 		case gpa.OpExists:
@@ -1224,7 +1224,7 @@ func (r *Repository) applySubQueryConditionToDelete(query *bun.DeleteQuery, cond
 		default:
 			return query.Where(condition.String())
 		}
-		
+
 	case gpa.SubQueryTypeScalar:
 		switch subQuery.Operator {
 		case gpa.OpGreaterThan:
@@ -1242,29 +1242,29 @@ func (r *Repository) applySubQueryConditionToDelete(query *bun.DeleteQuery, cond
 		default:
 			return query.Where(condition.String())
 		}
-		
+
 	default:
 		return query.Where(condition.String())
 	}
 }
 
-// applySubQueryConditionToUpdate applies a subquery condition to an update query  
+// applySubQueryConditionToUpdate applies a subquery condition to an update query
 func (r *Repository) applySubQueryConditionToUpdate(query *bun.UpdateQuery, condition gpa.SubQueryCondition) *bun.UpdateQuery {
 	subQuery := condition.SubQuery
-	
+
 	switch subQuery.Type {
 	case gpa.SubQueryTypeExists:
 		if subQuery.Operator == gpa.OpNotExists {
 			return query.Where("NOT EXISTS ("+subQuery.Query+")", subQuery.Args...)
 		}
 		return query.Where("EXISTS ("+subQuery.Query+")", subQuery.Args...)
-		
+
 	case gpa.SubQueryTypeIn:
 		if subQuery.Operator == gpa.OpNotInSubQuery {
 			return query.Where("? NOT IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
 		}
 		return query.Where("? IN ("+subQuery.Query+")", append([]interface{}{bun.Ident(subQuery.Field)}, subQuery.Args...)...)
-		
+
 	case gpa.SubQueryTypeCorrelated:
 		switch subQuery.Operator {
 		case gpa.OpExists:
@@ -1286,7 +1286,7 @@ func (r *Repository) applySubQueryConditionToUpdate(query *bun.UpdateQuery, cond
 		default:
 			return query.Where(condition.String())
 		}
-		
+
 	case gpa.SubQueryTypeScalar:
 		switch subQuery.Operator {
 		case gpa.OpGreaterThan:
@@ -1304,7 +1304,7 @@ func (r *Repository) applySubQueryConditionToUpdate(query *bun.UpdateQuery, cond
 		default:
 			return query.Where(condition.String())
 		}
-		
+
 	default:
 		return query.Where(condition.String())
 	}
