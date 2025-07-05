@@ -816,11 +816,6 @@ type SQLRepository interface {
 	// WARNING: This permanently deletes all data in the table.
 	// May fail if there are foreign key constraints pointing to this table.
 	DropTable(ctx context.Context, entity interface{}) error
-	
-	// MigrateTable updates an existing table to match the entity structure.
-	// Adds missing columns, indexes, constraints, etc. Usually doesn't drop existing columns.
-	// Use this for schema evolution during application updates.
-	MigrateTable(ctx context.Context, entity interface{}) error
 
 	// ===============================
 	// Index Management
@@ -835,6 +830,21 @@ type SQLRepository interface {
 	// The indexName should match the name used when the index was created.
 	// May improve write performance but will slow down relevant queries.
 	DropIndex(ctx context.Context, entity interface{}, indexName string) error
+}
+
+// =====================================
+// Optional SQL Extensions
+// =====================================
+
+// MigratableRepository is an optional interface for SQL databases that support schema migration.
+// Currently only implemented by GORM adapter. Use type assertion to check availability.
+// Example: if migrator, ok := repo.(MigratableRepository); ok { migrator.MigrateTable(...) }
+type MigratableRepository interface {
+	// MigrateTable updates an existing table to match the entity structure.
+	// Adds missing columns, indexes, constraints, etc. Usually doesn't drop existing columns.
+	// Use this for schema evolution during application updates.
+	// Only available in adapters that support automatic schema migration (e.g., GORM).
+	MigrateTable(ctx context.Context, entity interface{}) error
 }
 
 // DocumentRepository extends Repository with document database operations.
@@ -1200,6 +1210,8 @@ Database capabilities by type:
 - Check capabilities via type assertions: repo.(TTLKeyValueRepository)
 - Use Preload() QueryOption for relationships in base Repository interface
 - Use FindWithRelations() methods via SQLRepository interface for convenience
+- For schema migration: Check if repo implements MigratableRepository (currently GORM only)
+  Example: if migrator, ok := repo.(MigratableRepository); ok { migrator.MigrateTable(ctx, entity) }
 - Multi-model databases can implement multiple interfaces (e.g., ArangoDB: DocumentRepository + GraphRepository)
 */
 

@@ -440,17 +440,6 @@ func (r *Repository) DropTable(ctx context.Context, entity interface{}) error {
 	return convertBunError(err)
 }
 
-// MigrateTable migrates the table schema for the entity
-func (r *Repository) MigrateTable(ctx context.Context, entity interface{}) error {
-	// First try to create the table
-	err := r.CreateTable(ctx, entity)
-	if err != nil {
-		// If table exists, we might need to alter it
-		// For now, just return the error - proper migrations would need schema comparison
-		return err
-	}
-	return nil
-}
 
 // CreateIndex creates an index on the specified fields
 func (r *Repository) CreateIndex(ctx context.Context, entity interface{}, fields []string, unique bool) error {

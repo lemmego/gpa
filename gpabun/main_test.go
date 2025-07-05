@@ -744,25 +744,6 @@ func (suite *BunAdapterTestSuite) TestCreateTable() {
 	assert.NoError(suite.T(), err)
 }
 
-func (suite *BunAdapterTestSuite) TestMigrateTable() {
-	sqlRepo := suite.productRepo.(gpa.SQLRepository)
-
-	// Migrate table (should work even if table exists)
-	err := sqlRepo.MigrateTable(suite.ctx, &TestProduct{})
-	assert.NoError(suite.T(), err)
-
-	// Verify we can create products
-	product := &TestProduct{
-		Name:        "Migration Test Product",
-		Description: "Test product for migration",
-		Price:       99.99,
-		Stock:       10,
-		IsActive:    true,
-	}
-	err = suite.productRepo.Create(suite.ctx, product)
-	assert.NoError(suite.T(), err)
-	assert.NotZero(suite.T(), product.ID)
-}
 
 // =====================================
 // Bun-Specific Features Tests

@@ -198,12 +198,19 @@ func (p *Provider) ProviderInfo() gpa.ProviderInfo {
 // Repository Implementation
 // =====================================
 
-// Repository implements gpa.Repository and gpa.SQLRepository using GORM
+// Repository implements gpa.Repository, gpa.SQLRepository, and gpa.MigratableRepository using GORM
 type Repository struct {
 	db         *gorm.DB
 	entityType reflect.Type
 	provider   *Provider
 }
+
+// Compile-time interface checks
+var (
+	_ gpa.Repository           = (*Repository)(nil)
+	_ gpa.SQLRepository        = (*Repository)(nil)
+	_ gpa.MigratableRepository = (*Repository)(nil)
+)
 
 // Create creates a new entity
 func (r *Repository) Create(ctx context.Context, entity interface{}) error {

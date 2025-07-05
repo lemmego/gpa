@@ -83,10 +83,10 @@ func (suite *GormAdapterTestSuite) SetupSuite() {
 	suite.ctx = context.Background()
 
 	// Auto-migrate tables
-	sqlRepo := suite.userRepo.(gpa.SQLRepository)
-	require.NoError(suite.T(), sqlRepo.MigrateTable(suite.ctx, &TestUser{}))
-	require.NoError(suite.T(), sqlRepo.MigrateTable(suite.ctx, &TestOrder{}))
-	require.NoError(suite.T(), sqlRepo.MigrateTable(suite.ctx, &TestProduct{}))
+	migrator := suite.userRepo.(gpa.MigratableRepository)
+	require.NoError(suite.T(), migrator.MigrateTable(suite.ctx, &TestUser{}))
+	require.NoError(suite.T(), migrator.MigrateTable(suite.ctx, &TestOrder{}))
+	require.NoError(suite.T(), migrator.MigrateTable(suite.ctx, &TestProduct{}))
 }
 
 func (suite *GormAdapterTestSuite) TearDownSuite() {
@@ -105,9 +105,10 @@ func (suite *GormAdapterTestSuite) SetupTest() {
 	sqlRepo.ExecSQL(suite.ctx, "DELETE FROM test_products")
 
 	// Ensure tables exist by running migration again
-	sqlRepo.MigrateTable(suite.ctx, &TestUser{})
-	sqlRepo.MigrateTable(suite.ctx, &TestOrder{})
-	sqlRepo.MigrateTable(suite.ctx, &TestProduct{})
+	migrator := suite.userRepo.(gpa.MigratableRepository)
+	migrator.MigrateTable(suite.ctx, &TestUser{})
+	migrator.MigrateTable(suite.ctx, &TestOrder{})
+	migrator.MigrateTable(suite.ctx, &TestProduct{})
 }
 
 // =====================================
@@ -776,10 +777,10 @@ func (suite *GormAdapterTestSuite) TestGetEntityInfo() {
 }
 
 func (suite *GormAdapterTestSuite) TestMigrateTable() {
-	sqlRepo := suite.productRepo.(gpa.SQLRepository)
+	migrator := suite.productRepo.(gpa.MigratableRepository)
 
 	// The table should already exist from SetupSuite, but let's test anyway
-	err := sqlRepo.MigrateTable(suite.ctx, &TestProduct{})
+	err := migrator.MigrateTable(suite.ctx, &TestProduct{})
 	assert.NoError(suite.T(), err)
 
 	// Verify we can create products
@@ -1077,10 +1078,10 @@ func BenchmarkCreate(b *testing.B) {
 	defer provider.Close()
 
 	repo := provider.RepositoryFor(&TestUser{})
-	sqlRepo := repo.(gpa.SQLRepository)
 	ctx := context.Background()
 
-	err = sqlRepo.MigrateTable(ctx, &TestUser{})
+	migrator := repo.(gpa.MigratableRepository)
+	err = migrator.MigrateTable(ctx, &TestUser{})
 	require.NoError(b, err)
 
 	b.ResetTimer()
@@ -1115,10 +1116,10 @@ func BenchmarkQuery(b *testing.B) {
 	defer provider.Close()
 
 	repo := provider.RepositoryFor(&TestUser{})
-	sqlRepo := repo.(gpa.SQLRepository)
 	ctx := context.Background()
 
-	err = sqlRepo.MigrateTable(ctx, &TestUser{})
+	migrator := repo.(gpa.MigratableRepository)
+	err = migrator.MigrateTable(ctx, &TestUser{})
 	require.NoError(b, err)
 
 	// Create test data
