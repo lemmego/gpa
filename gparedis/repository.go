@@ -1,595 +1,462 @@
+// Package gparedis provides a Redis adapter for the Go Persistence API (GPA)
 package gparedis
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"strings"
+	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/lemmego/gpa"
 )
 
 // =====================================
-// Repository Interface Implementation (continued)
+// Generic Redis Repository Implementation
 // =====================================
 
-// FindAll retrieves all entities matching the given options
-func (r *Repository) FindAll(ctx context.Context, dest interface{}, opts ...gpa.QueryOption) error {
-	// For Redis, we'll scan all keys with our prefix and return matching entities
-	keys, err := r.Keys(ctx, "*")
-	if err != nil {
-		return err
-	}
-
-	if len(keys) == 0 {
-		// Set empty slice
-		destValue := reflect.ValueOf(dest)
-		if destValue.Kind() == reflect.Ptr && destValue.Elem().Kind() == reflect.Slice {
-			destValue.Elem().Set(reflect.MakeSlice(destValue.Elem().Type(), 0, 0))
-		}
-		return nil
-	}
-
-	// Get all entities
-	fullKeys := make([]string, len(keys))
-	for i, key := range keys {
-		fullKeys[i] = r.buildKey(key)
-	}
-
-	values, err := r.client.MGet(ctx, fullKeys...).Result()
-	if err != nil {
-		return convertRedisError(err)
-	}
-
-	// Parse query options
-	query := &gpa.Query{}
-	for _, opt := range opts {
-		opt.Apply(query)
-	}
-
-	// Build results
-	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeInvalidArgument,
-			Message: "dest must be a pointer to a slice",
-		}
-	}
-
-	sliceValue := destValue.Elem()
-	sliceType := sliceValue.Type()
-	elemType := sliceType.Elem()
-
-	var results []interface{}
-	for _, val := range values {
-		if val != nil {
-			if strVal, ok := val.(string); ok {
-				// Create a new instance of the element type
-				elem := reflect.New(elemType).Interface()
-				if err := json.Unmarshal([]byte(strVal), elem); err == nil {
-					// Apply basic filtering if conditions are present
-					if r.matchesConditions(elem, query.Conditions) {
-						results = append(results, elem)
-					}
-				}
-			}
-		}
-	}
-
-	// Apply limit and offset
-	start := 0
-	end := len(results)
-	
-	if query.Offset != nil {
-		start = int(*query.Offset)
-		if start > len(results) {
-			start = len(results)
-		}
-	}
-	
-	if query.Limit != nil {
-		requestedEnd := start + int(*query.Limit)
-		if requestedEnd < end {
-			end = requestedEnd
-		}
-	}
-	
-	if start < end {
-		results = results[start:end]
-	} else {
-		results = nil
-	}
-
-	// Set the results
-	newSlice := reflect.MakeSlice(sliceType, len(results), len(results))
-	for i, result := range results {
-		newSlice.Index(i).Set(reflect.ValueOf(result).Elem())
-	}
-	
-	destValue.Elem().Set(newSlice)
-	return nil
+// RepositoryG implements type-safe Redis operations using Go generics.
+// Provides compile-time type safety for all key-value operations.
+type Repository[T any] struct {
+	provider  *Provider
+	client    *redis.Client
+	keyPrefix string
 }
 
-// Update updates an entity
-func (r *Repository) Update(ctx context.Context, entity interface{}) error {
-	id, err := r.extractID(entity)
-	if err != nil {
-		return err
+// NewRepository creates a new generic Redis repository for type T.
+// Example: userRepo := NewRepository[User](provider, client, "user:")
+func NewRepository[T any](provider *Provider, client *redis.Client, keyPrefix string) *Repository[T] {
+	return &Repository[T]{
+		provider:  provider,
+		client:    client,
+		keyPrefix: keyPrefix,
 	}
-
-	key := fmt.Sprintf("%v", id)
-	// Check if entity exists
-	exists, err := r.ExistsKey(ctx, key)
-	if err != nil {
-		return err
-	}
-	if !exists {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeNotFound,
-			Message: fmt.Sprintf("entity with ID %v not found", id),
-		}
-	}
-
-	return r.Set(ctx, key, entity)
 }
 
-// UpdatePartial updates specific fields of an entity
-func (r *Repository) UpdatePartial(ctx context.Context, id interface{}, updates map[string]interface{}) error {
-	key := fmt.Sprintf("%v", id)
-	
-	// Get existing entity
+// buildKey creates a full key with the prefix
+func (r *Repository[T]) buildKey(key string) string {
+	if r.keyPrefix == "" {
+		return key
+	}
+	return r.keyPrefix + key
+}
+
+// =====================================
+// BasicKeyValueRepositoryG Implementation
+// =====================================
+
+// Get retrieves a value by key with compile-time type safety.
+// Returns the value directly without requiring a destination parameter.
+func (r *Repository[T]) Get(ctx context.Context, key string) (*T, error) {
 	fullKey := r.buildKey(key)
 	result := r.client.Get(ctx, fullKey)
 	if err := result.Err(); err != nil {
 		if err == redis.Nil {
-			return gpa.GPAError{
+			return nil, gpa.GPAError{
 				Type:    gpa.ErrorTypeNotFound,
-				Message: fmt.Sprintf("entity with ID %v not found", id),
+				Message: fmt.Sprintf("key not found: %s", key),
 			}
 		}
-		return convertRedisError(err)
+		return nil, convertRedisError(err)
 	}
 
-	// Parse existing entity as map
-	var entityMap map[string]interface{}
 	data, err := result.Bytes()
 	if err != nil {
-		return convertRedisError(err)
+		return nil, convertRedisError(err)
 	}
-	
-	if err := json.Unmarshal(data, &entityMap); err != nil {
-		return gpa.GPAError{
+
+	var entity T
+	if err := json.Unmarshal(data, &entity); err != nil {
+		return nil, gpa.GPAError{
 			Type:    gpa.ErrorTypeSerialization,
-			Message: "failed to parse existing entity",
+			Message: "failed to deserialize value",
 			Cause:   err,
 		}
 	}
 
-	// Apply updates
-	for field, value := range updates {
-		entityMap[field] = value
-	}
-
-	// Save updated entity
-	updatedData, err := json.Marshal(entityMap)
-	if err != nil {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeSerialization,
-			Message: "failed to serialize updated entity",
-			Cause:   err,
-		}
-	}
-
-	return convertRedisError(r.client.Set(ctx, fullKey, updatedData, 0).Err())
+	return &entity, nil
 }
 
-// Delete removes an entity by ID (Repository interface)
-func (r *Repository) Delete(ctx context.Context, id interface{}) error {
-	key := fmt.Sprintf("%v", id)
+// Set stores a value with compile-time type safety.
+// Accepts the value directly without interface{} conversion.
+func (r *Repository[T]) Set(ctx context.Context, key string, value *T) error {
+	return r.SetWithTTL(ctx, key, value, 0)
+}
+
+// DeleteKey removes a key-value pair.
+func (r *Repository[T]) DeleteKey(ctx context.Context, key string) error {
 	fullKey := r.buildKey(key)
-	
-	deleted, err := r.client.Del(ctx, fullKey).Result()
-	if err != nil {
-		return convertRedisError(err)
-	}
-	
-	if deleted == 0 {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeNotFound,
-			Message: fmt.Sprintf("entity with ID %v not found", id),
-		}
-	}
-	
-	return nil
+	result := r.client.Del(ctx, fullKey)
+	return convertRedisError(result.Err())
 }
 
-// DeleteByCondition removes entities matching the given condition
-func (r *Repository) DeleteByCondition(ctx context.Context, condition gpa.Condition) error {
-	// Get all entities first
-	keys, err := r.Keys(ctx, "*")
-	if err != nil {
-		return err
-	}
-
-	if len(keys) == 0 {
-		return nil
-	}
-
-	fullKeys := make([]string, len(keys))
-	for i, key := range keys {
-		fullKeys[i] = r.buildKey(key)
-	}
-
-	values, err := r.client.MGet(ctx, fullKeys...).Result()
-	if err != nil {
-		return convertRedisError(err)
-	}
-
-	var keysToDelete []string
-	for i, val := range values {
-		if val != nil {
-			if strVal, ok := val.(string); ok {
-				var entityMap map[string]interface{}
-				if err := json.Unmarshal([]byte(strVal), &entityMap); err == nil {
-					if r.matchesCondition(entityMap, condition) {
-						keysToDelete = append(keysToDelete, fullKeys[i])
-					}
-				}
-			}
-		}
-	}
-
-	if len(keysToDelete) > 0 {
-		return convertRedisError(r.client.Del(ctx, keysToDelete...).Err())
-	}
-
-	return nil
-}
-
-// Query performs a query with the given options
-func (r *Repository) Query(ctx context.Context, dest interface{}, opts ...gpa.QueryOption) error {
-	return r.FindAll(ctx, dest, opts...)
-}
-
-// QueryOne retrieves a single entity matching the query
-func (r *Repository) QueryOne(ctx context.Context, dest interface{}, opts ...gpa.QueryOption) error {
-	// Create a slice to hold results
-	destType := reflect.TypeOf(dest)
-	if destType.Kind() != reflect.Ptr {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeInvalidArgument,
-			Message: "dest must be a pointer",
-		}
-	}
-
-	elemType := destType.Elem()
-	sliceType := reflect.SliceOf(elemType)
-	slice := reflect.New(sliceType).Interface()
-
-	// Add limit of 1 to options
-	queryOpts := append(opts, gpa.Limit(1))
-	
-	if err := r.FindAll(ctx, slice, queryOpts...); err != nil {
-		return err
-	}
-
-	// Check if we found any results
-	sliceValue := reflect.ValueOf(slice).Elem()
-	if sliceValue.Len() == 0 {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeNotFound,
-			Message: "no entity found matching the query",
-		}
-	}
-
-	// Set the first result to dest
-	reflect.ValueOf(dest).Elem().Set(sliceValue.Index(0))
-	return nil
-}
-
-// Count returns the number of entities matching the query
-func (r *Repository) Count(ctx context.Context, opts ...gpa.QueryOption) (int64, error) {
-	keys, err := r.Keys(ctx, "*")
-	if err != nil {
-		return 0, err
-	}
-
-	if len(keys) == 0 {
-		return 0, nil
-	}
-
-	// Parse query options
-	query := &gpa.Query{}
-	for _, opt := range opts {
-		opt.Apply(query)
-	}
-
-	// If no conditions, return total count
-	if len(query.Conditions) == 0 {
-		return int64(len(keys)), nil
-	}
-
-	// Get all entities and count matches
-	fullKeys := make([]string, len(keys))
-	for i, key := range keys {
-		fullKeys[i] = r.buildKey(key)
-	}
-
-	values, err := r.client.MGet(ctx, fullKeys...).Result()
-	if err != nil {
-		return 0, convertRedisError(err)
-	}
-
-	var count int64
-	for _, val := range values {
-		if val != nil {
-			if strVal, ok := val.(string); ok {
-				var entityMap map[string]interface{}
-				if err := json.Unmarshal([]byte(strVal), &entityMap); err == nil {
-					if r.matchesConditions(entityMap, query.Conditions) {
-						count++
-					}
-				}
-			}
-		}
-	}
-
-	return count, nil
-}
-
-// Exists checks if any entity matches the query (Repository interface)
-func (r *Repository) Exists(ctx context.Context, opts ...gpa.QueryOption) (bool, error) {
-	count, err := r.Count(ctx, opts...)
-	if err != nil {
-		return false, err
-	}
-	return count > 0, nil
-}
-
-// Transaction is not supported by Redis in the traditional sense
-func (r *Repository) Transaction(ctx context.Context, fn gpa.TransactionFunc) error {
-	return gpa.GPAError{
-		Type:    gpa.ErrorTypeUnsupported,
-		Message: "transactions are not supported by Redis adapter",
-	}
-}
-
-// RawQuery executes a raw Redis command
-func (r *Repository) RawQuery(ctx context.Context, query string, args []interface{}, dest interface{}) error {
-	// Parse Redis command
-	parts := []interface{}{query}
-	parts = append(parts, args...)
-	
-	result := r.client.Do(ctx, parts...)
+// KeyExists checks if a key exists in the store.
+func (r *Repository[T]) KeyExists(ctx context.Context, key string) (bool, error) {
+	fullKey := r.buildKey(key)
+	result := r.client.Exists(ctx, fullKey)
 	if err := result.Err(); err != nil {
-		return convertRedisError(err)
+		return false, convertRedisError(err)
 	}
-
-	// Try to set the result
-	val, err := result.Result()
-	if err != nil {
-		return convertRedisError(err)
-	}
-
-	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeInvalidArgument,
-			Message: "dest must be a pointer",
-		}
-	}
-
-	// Convert result based on type
-	resultValue := reflect.ValueOf(val)
-	if resultValue.Type().AssignableTo(destValue.Elem().Type()) {
-		destValue.Elem().Set(resultValue)
-		return nil
-	}
-
-	return gpa.GPAError{
-		Type:    gpa.ErrorTypeInvalidArgument,
-		Message: "result type not compatible with destination",
-	}
+	return result.Val() > 0, nil
 }
 
-// RawExec executes a raw Redis command without returning data
-func (r *Repository) RawExec(ctx context.Context, query string, args []interface{}) (gpa.Result, error) {
-	parts := []interface{}{query}
-	parts = append(parts, args...)
-	
-	result := r.client.Do(ctx, parts...)
+// =====================================
+// BatchKeyValueRepositoryG Implementation
+// =====================================
+
+// MGet retrieves multiple values by their keys with compile-time type safety.
+// Returns a slice of pointers to values.
+func (r *Repository[T]) MGet(ctx context.Context, keys []string) (map[string]*T, error) {
+	if len(keys) == 0 {
+		return map[string]*T{}, nil
+	}
+
+	// Build full keys
+	fullKeys := make([]string, len(keys))
+	for i, key := range keys {
+		fullKeys[i] = r.buildKey(key)
+	}
+
+	result := r.client.MGet(ctx, fullKeys...)
 	if err := result.Err(); err != nil {
 		return nil, convertRedisError(err)
 	}
 
-	return &RedisResult{result: result}, nil
-}
+	values := result.Val()
+	entities := make(map[string]*T)
 
-// GetEntityInfo returns metadata about the entity
-func (r *Repository) GetEntityInfo(entity interface{}) (*gpa.EntityInfo, error) {
-	entityType := reflect.TypeOf(entity)
-	if entityType.Kind() == reflect.Ptr {
-		entityType = entityType.Elem()
+	for i, value := range values {
+		if value == nil {
+			// Key not found, skip
+			continue
+		}
+
+		data, ok := value.(string)
+		if !ok {
+			return nil, gpa.NewError(gpa.ErrorTypeSerialization, "unexpected value type from Redis")
+		}
+
+		var entity T
+		if err := json.Unmarshal([]byte(data), &entity); err != nil {
+			return nil, gpa.NewErrorWithCause(gpa.ErrorTypeSerialization, "failed to deserialize value", err)
+		}
+
+		entities[keys[i]] = &entity
 	}
 
-	return &gpa.EntityInfo{
-		Name:       entityType.Name(),
-		TableName:  entityType.Name(),
-		Fields:     extractFields(entityType),
-		PrimaryKey: []string{"ID"}, // Assume ID field
-		Indexes:    []gpa.IndexInfo{}, // Redis doesn't have traditional indexes
-		Relations:  []gpa.RelationInfo{}, // Redis doesn't support relations
-	}, nil
+	return entities, nil
 }
 
-// Close closes the repository (no-op for Redis)
-func (r *Repository) Close() error {
+// MSet stores multiple key-value pairs with compile-time type safety.
+func (r *Repository[T]) MSet(ctx context.Context, pairs map[string]*T) error {
+	if len(pairs) == 0 {
+		return nil
+	}
+
+	// Convert to Redis format
+	redisPairs := make([]interface{}, 0, len(pairs)*2)
+	for key, value := range pairs {
+		fullKey := r.buildKey(key)
+		
+		data, err := json.Marshal(value)
+		if err != nil {
+			return gpa.GPAError{
+				Type:    gpa.ErrorTypeSerialization,
+				Message: "failed to serialize value",
+				Cause:   err,
+			}
+		}
+
+		redisPairs = append(redisPairs, fullKey, data)
+	}
+
+	result := r.client.MSet(ctx, redisPairs...)
+	return convertRedisError(result.Err())
+}
+
+// MDelete removes multiple keys in a single operation.
+func (r *Repository[T]) MDelete(ctx context.Context, keys []string) (int64, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
+
+	fullKeys := make([]string, len(keys))
+	for i, key := range keys {
+		fullKeys[i] = r.buildKey(key)
+	}
+
+	result := r.client.Del(ctx, fullKeys...)
+	if err := result.Err(); err != nil {
+		return 0, convertRedisError(err)
+	}
+	return result.Val(), nil
+}
+
+// =====================================
+// TTLKeyValueRepositoryG Implementation
+// =====================================
+
+// SetWithTTL stores a value with an expiration time and compile-time type safety.
+func (r *Repository[T]) SetWithTTL(ctx context.Context, key string, value *T, ttl time.Duration) error {
+	fullKey := r.buildKey(key)
+	
+	data, err := json.Marshal(value)
+	if err != nil {
+		return gpa.GPAError{
+			Type:    gpa.ErrorTypeSerialization,
+			Message: "failed to serialize value",
+			Cause:   err,
+		}
+	}
+
+	return convertRedisError(r.client.Set(ctx, fullKey, data, ttl).Err())
+}
+
+// Expire sets or updates the TTL for an existing key.
+func (r *Repository[T]) Expire(ctx context.Context, key string, ttl time.Duration) error {
+	fullKey := r.buildKey(key)
+	result := r.client.Expire(ctx, fullKey, ttl)
+	return convertRedisError(result.Err())
+}
+
+// TTL returns the remaining time until the key expires.
+func (r *Repository[T]) TTL(ctx context.Context, key string) (time.Duration, error) {
+	fullKey := r.buildKey(key)
+	result := r.client.TTL(ctx, fullKey)
+	if err := result.Err(); err != nil {
+		return 0, convertRedisError(err)
+	}
+	return result.Val(), nil
+}
+
+// GetTTL returns the remaining time-to-live for a key.
+func (r *Repository[T]) GetTTL(ctx context.Context, key string) (time.Duration, error) {
+	return r.TTL(ctx, key)
+}
+
+// SetTTL sets or updates the TTL for an existing key.
+func (r *Repository[T]) SetTTL(ctx context.Context, key string, ttl time.Duration) error {
+	fullKey := r.buildKey(key)
+	result := r.client.Expire(ctx, fullKey, ttl)
+	if err := result.Err(); err != nil {
+		return convertRedisError(err)
+	}
+	if !result.Val() {
+		return gpa.NewError(gpa.ErrorTypeNotFound, "key not found")
+	}
 	return nil
+}
+
+// RemoveTTL removes the TTL from a key, making it persistent.
+func (r *Repository[T]) RemoveTTL(ctx context.Context, key string) error {
+	fullKey := r.buildKey(key)
+	result := r.client.Persist(ctx, fullKey)
+	if err := result.Err(); err != nil {
+		return convertRedisError(err)
+	}
+	if !result.Val() {
+		return gpa.NewError(gpa.ErrorTypeNotFound, "key not found")
+	}
+	return nil
+}
+
+// =====================================
+// Numeric Operations (shared interface)
+// =====================================
+
+// Increment atomically adds delta to a numeric value.
+func (r *Repository[T]) Increment(ctx context.Context, key string, delta int64) (int64, error) {
+	fullKey := r.buildKey(key)
+	result := r.client.IncrBy(ctx, fullKey, delta)
+	if err := result.Err(); err != nil {
+		return 0, convertRedisError(err)
+	}
+	return result.Val(), nil
+}
+
+// Decrement atomically subtracts delta from a numeric value.
+func (r *Repository[T]) Decrement(ctx context.Context, key string, delta int64) (int64, error) {
+	return r.Increment(ctx, key, -delta)
+}
+
+// =====================================
+// Pattern Operations (shared interface)
+// =====================================
+
+// Keys returns all keys matching the given pattern.
+func (r *Repository[T]) Keys(ctx context.Context, pattern string) ([]string, error) {
+	fullPattern := r.buildKey(pattern)
+	result := r.client.Keys(ctx, fullPattern)
+	if err := result.Err(); err != nil {
+		return nil, convertRedisError(err)
+	}
+
+	keys := result.Val()
+	// Remove prefix from returned keys
+	if r.keyPrefix != "" {
+		prefixLen := len(r.keyPrefix)
+		for i, key := range keys {
+			if len(key) > prefixLen && key[:prefixLen] == r.keyPrefix {
+				keys[i] = key[prefixLen:]
+			}
+		}
+	}
+
+	return keys, nil
+}
+
+// Scan iterates through keys matching a pattern using cursor-based pagination.
+func (r *Repository[T]) Scan(ctx context.Context, cursor uint64, pattern string, count int64) ([]string, uint64, error) {
+	fullPattern := r.buildKey(pattern)
+	result := r.client.Scan(ctx, cursor, fullPattern, count)
+	if err := result.Err(); err != nil {
+		return nil, 0, convertRedisError(err)
+	}
+
+	keys, newCursor := result.Val()
+	
+	// Remove prefix from returned keys
+	if r.keyPrefix != "" {
+		prefixLen := len(r.keyPrefix)
+		for i, key := range keys {
+			if len(key) > prefixLen && key[:prefixLen] == r.keyPrefix {
+				keys[i] = key[prefixLen:]
+			}
+		}
+	}
+
+	return keys, newCursor, nil
+}
+
+// =====================================
+// Repository Interface Methods
+// =====================================
+
+// Close closes the repository and releases any resources.
+func (r *Repository[T]) Close() error {
+	// Redis repositories don't need to close anything specific
+	// The connection is managed by the provider
+	return nil
+}
+
+// Create is not applicable for Redis key-value store
+func (r *Repository[T]) Create(ctx context.Context, entity *T) error {
+	return gpa.NewError(gpa.ErrorTypeUnsupported, "Create operation not supported for Redis key-value store")
+}
+
+// CreateBatch is not applicable for Redis key-value store
+func (r *Repository[T]) CreateBatch(ctx context.Context, entities []*T) error {
+	return gpa.NewError(gpa.ErrorTypeUnsupported, "CreateBatch operation not supported for Redis key-value store")
+}
+
+// FindByID is not applicable for Redis key-value store - use Get instead
+func (r *Repository[T]) FindByID(ctx context.Context, id interface{}) (*T, error) {
+	return nil, gpa.NewError(gpa.ErrorTypeUnsupported, "FindByID operation not supported for Redis key-value store - use Get instead")
+}
+
+// FindAll is not applicable for Redis key-value store
+func (r *Repository[T]) FindAll(ctx context.Context, opts ...gpa.QueryOption) ([]*T, error) {
+	return nil, gpa.NewError(gpa.ErrorTypeUnsupported, "FindAll operation not supported for Redis key-value store")
+}
+
+// Update is not applicable for Redis key-value store - use Set instead
+func (r *Repository[T]) Update(ctx context.Context, entity *T) error {
+	return gpa.NewError(gpa.ErrorTypeUnsupported, "Update operation not supported for Redis key-value store - use Set instead")
+}
+
+// UpdatePartial is not applicable for Redis key-value store
+func (r *Repository[T]) UpdatePartial(ctx context.Context, id interface{}, updates map[string]interface{}) error {
+	return gpa.NewError(gpa.ErrorTypeUnsupported, "UpdatePartial operation not supported for Redis key-value store")
+}
+
+// Delete is not applicable for Redis key-value store - use DeleteKey instead
+func (r *Repository[T]) Delete(ctx context.Context, id interface{}) error {
+	return gpa.NewError(gpa.ErrorTypeUnsupported, "Delete operation not supported for Redis key-value store - use DeleteKey instead")
+}
+
+// DeleteByCondition is not applicable for Redis key-value store
+func (r *Repository[T]) DeleteByCondition(ctx context.Context, condition gpa.Condition) error {
+	return gpa.NewError(gpa.ErrorTypeUnsupported, "DeleteByCondition operation not supported for Redis key-value store")
+}
+
+// Query is not applicable for Redis key-value store
+func (r *Repository[T]) Query(ctx context.Context, opts ...gpa.QueryOption) ([]*T, error) {
+	return nil, gpa.NewError(gpa.ErrorTypeUnsupported, "Query operation not supported for Redis key-value store")
+}
+
+// QueryOne is not applicable for Redis key-value store
+func (r *Repository[T]) QueryOne(ctx context.Context, opts ...gpa.QueryOption) (*T, error) {
+	return nil, gpa.NewError(gpa.ErrorTypeUnsupported, "QueryOne operation not supported for Redis key-value store")
+}
+
+// Count is not applicable for Redis key-value store
+func (r *Repository[T]) Count(ctx context.Context, opts ...gpa.QueryOption) (int64, error) {
+	return 0, gpa.NewError(gpa.ErrorTypeUnsupported, "Count operation not supported for Redis key-value store")
+}
+
+// Exists is not applicable for Redis key-value store - use KeyExists instead
+func (r *Repository[T]) Exists(ctx context.Context, opts ...gpa.QueryOption) (bool, error) {
+	return false, gpa.NewError(gpa.ErrorTypeUnsupported, "Exists operation not supported for Redis key-value store - use KeyExists instead")
+}
+
+// Transaction is not applicable for Redis key-value store
+func (r *Repository[T]) Transaction(ctx context.Context, fn gpa.TransactionFunc[T]) error {
+	return gpa.NewError(gpa.ErrorTypeUnsupported, "Transaction operation not supported for Redis key-value store")
+}
+
+// RawQuery is not applicable for Redis key-value store
+func (r *Repository[T]) RawQuery(ctx context.Context, query string, args []interface{}) ([]*T, error) {
+	return nil, gpa.NewError(gpa.ErrorTypeUnsupported, "RawQuery operation not supported for Redis key-value store")
+}
+
+// RawExec is not applicable for Redis key-value store
+func (r *Repository[T]) RawExec(ctx context.Context, query string, args []interface{}) (gpa.Result, error) {
+	return nil, gpa.NewError(gpa.ErrorTypeUnsupported, "RawExec operation not supported for Redis key-value store")
+}
+
+// GetEntityInfo returns basic entity information for Redis
+func (r *Repository[T]) GetEntityInfo() (*gpa.EntityInfo, error) {
+	var zero T
+	return &gpa.EntityInfo{
+		Name:       fmt.Sprintf("%T", zero),
+		TableName:  r.keyPrefix,
+		PrimaryKey: []string{"key"},
+		Fields:     []gpa.FieldInfo{},
+		Indexes:    []gpa.IndexInfo{},
+		Relations:  []gpa.RelationInfo{},
+	}, nil
 }
 
 // =====================================
 // Helper Functions
 // =====================================
 
-// matchesConditions checks if an entity matches all conditions
-func (r *Repository) matchesConditions(entity interface{}, conditions []gpa.Condition) bool {
-	for _, condition := range conditions {
-		if !r.matchesCondition(entity, condition) {
-			return false
-		}
+// convertRedisError converts Redis errors to GPA errors
+func convertRedisError(err error) error {
+	if err == nil {
+		return nil
 	}
-	return true
+	if err == redis.Nil {
+		return gpa.NewErrorWithCause(gpa.ErrorTypeNotFound, "key not found", err)
+	}
+	// If it's already a GPA error, return it as is
+	if gpaErr, ok := err.(gpa.GPAError); ok {
+		return gpaErr
+	}
+	return gpa.NewErrorWithCause(gpa.ErrorTypeDatabase, "redis error", err)
 }
 
-// matchesCondition checks if an entity matches a single condition
-func (r *Repository) matchesCondition(entity interface{}, condition gpa.Condition) bool {
-	switch cond := condition.(type) {
-	case gpa.BasicCondition:
-		return r.matchesBasicCondition(entity, cond)
-	case gpa.CompositeCondition:
-		return r.matchesCompositeCondition(entity, cond)
-	default:
-		// For complex conditions, we'll just return true for now
-		return true
-	}
+// NewAdvancedKVRepository creates a new type-safe advanced Redis repository.
+// This repository implements all KV capabilities with compile-time type safety.
+func NewAdvancedKVRepository[T any](provider *Provider, client *redis.Client, keyPrefix string) gpa.AdvancedKeyValueRepository[T] {
+	return NewRepository[T](provider, client, keyPrefix)
 }
 
-// matchesBasicCondition checks if an entity matches a basic condition
-func (r *Repository) matchesBasicCondition(entity interface{}, condition gpa.BasicCondition) bool {
-	var entityMap map[string]interface{}
-	
-	// Convert entity to map if it's not already
-	if m, ok := entity.(map[string]interface{}); ok {
-		entityMap = m
-	} else {
-		// Convert struct to map via JSON
-		data, err := json.Marshal(entity)
-		if err != nil {
-			return false
-		}
-		if err := json.Unmarshal(data, &entityMap); err != nil {
-			return false
-		}
-	}
-
-	fieldValue, exists := entityMap[condition.Field()]
-	if !exists {
-		return false
-	}
-
-	return compareValues(fieldValue, condition.Operator(), condition.Value())
-}
-
-// matchesCompositeCondition checks if an entity matches a composite condition
-func (r *Repository) matchesCompositeCondition(entity interface{}, condition gpa.CompositeCondition) bool {
-	switch condition.Logic {
-	case gpa.LogicAnd:
-		for _, subCondition := range condition.Conditions {
-			if !r.matchesCondition(entity, subCondition) {
-				return false
-			}
-		}
-		return true
-	case gpa.LogicOr:
-		for _, subCondition := range condition.Conditions {
-			if r.matchesCondition(entity, subCondition) {
-				return true
-			}
-		}
-		return false
-	default:
-		return true
-	}
-}
-
-// compareValues compares two values using the given operator
-func compareValues(fieldValue interface{}, operator gpa.Operator, targetValue interface{}) bool {
-	switch operator {
-	case gpa.OpEqual:
-		return fmt.Sprintf("%v", fieldValue) == fmt.Sprintf("%v", targetValue)
-	case gpa.OpNotEqual:
-		return fmt.Sprintf("%v", fieldValue) != fmt.Sprintf("%v", targetValue)
-	case gpa.OpLike:
-		fieldStr := fmt.Sprintf("%v", fieldValue)
-		targetStr := fmt.Sprintf("%v", targetValue)
-		// Simple contains check for LIKE
-		return contains(fieldStr, strings.Trim(targetStr, "%"))
-	default:
-		// For other operators, we'll do string comparison for simplicity
-		fieldStr := fmt.Sprintf("%v", fieldValue)
-		targetStr := fmt.Sprintf("%v", targetValue)
-		
-		switch operator {
-		case gpa.OpGreaterThan:
-			return fieldStr > targetStr
-		case gpa.OpLessThan:
-			return fieldStr < targetStr
-		case gpa.OpGreaterThanOrEqual:
-			return fieldStr >= targetStr
-		case gpa.OpLessThanOrEqual:
-			return fieldStr <= targetStr
-		}
-	}
-	
-	return false
-}
-
-// contains checks if a string contains a substring (case-insensitive)
-func contains(s, substr string) bool {
-	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
-}
-
-// extractFields extracts field information from a struct type
-func extractFields(entityType reflect.Type) []gpa.FieldInfo {
-	var fields []gpa.FieldInfo
-	
-	for i := 0; i < entityType.NumField(); i++ {
-		field := entityType.Field(i)
-		
-		fieldInfo := gpa.FieldInfo{
-			Name:         field.Name,
-			Type:         field.Type,
-			Tag:          string(field.Tag),
-			IsPrimaryKey: strings.ToLower(field.Name) == "id",
-			IsNullable:   true, // Redis doesn't enforce constraints
-		}
-		
-		fields = append(fields, fieldInfo)
-	}
-	
-	return fields
-}
-
-// =====================================
-// Redis Result Implementation
-// =====================================
-
-// RedisResult implements gpa.Result for Redis operations
-type RedisResult struct {
-	result *redis.Cmd
-}
-
-// LastInsertId returns 0 (not applicable for Redis)
-func (r *RedisResult) LastInsertId() (int64, error) {
-	return 0, nil
-}
-
-// RowsAffected returns the number of affected rows (when applicable)
-func (r *RedisResult) RowsAffected() (int64, error) {
-	val, err := r.result.Result()
-	if err != nil {
-		return 0, err
-	}
-	
-	// Try to convert to int64
-	if intVal, ok := val.(int64); ok {
-		return intVal, nil
-	}
-	if intVal, ok := val.(int); ok {
-		return int64(intVal), nil
-	}
-	
-	return 1, nil // Default to 1 for successful operations
-}
+// Compile-time interface checks for generic repository
+var (
+	_ gpa.Repository[any]                 = (*Repository[any])(nil)
+	_ gpa.BasicKeyValueRepository[any]    = (*Repository[any])(nil)
+	_ gpa.BatchKeyValueRepository[any]    = (*Repository[any])(nil)
+	_ gpa.TTLKeyValueRepository[any]      = (*Repository[any])(nil)
+	_ gpa.AdvancedKeyValueRepository[any] = (*Repository[any])(nil)
+)

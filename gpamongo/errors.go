@@ -223,8 +223,4 @@ func NewUnsupportedError(message string) error {
 // Registration
 // =====================================
 
-// init registers the MongoDB provider factory
-func init() {
-	gpa.RegisterProvider("mongodb", &Factory{})
-	gpa.RegisterProvider("mongo", &Factory{})
-}
+// Legacy registration removed - use NewProvider() instead

@@ -3,9 +3,7 @@ package gparedis
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -24,89 +22,36 @@ type Provider struct {
 	config gpa.Config
 }
 
-// Factory implements gpa.ProviderFactory
-type Factory struct{}
-
-// Create creates a new Redis provider instance
-func (f *Factory) Create(config gpa.Config) (gpa.Provider, error) {
+// NewProvider creates a new Redis provider instance
+func NewProvider(config gpa.Config) (*Provider, error) {
 	provider := &Provider{config: config}
 
 	// Build Redis connection options
-	opts := &redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", config.Host, config.Port),
-		Password: config.Password,
-		DB:       0, // Default database
+	opts, err := buildRedisOptions(config)
+	if err != nil {
+		return nil, err
 	}
-
-	// Parse database number if provided
-	if config.Database != "" {
-		if db, err := strconv.Atoi(config.Database); err == nil {
-			opts.DB = db
-		}
-	}
-
-	// Configure connection pool
-	if config.MaxOpenConns > 0 {
-		opts.PoolSize = config.MaxOpenConns
-	}
-	if config.MaxIdleConns > 0 {
-		opts.MinIdleConns = config.MaxIdleConns
-	}
-	// Note: Redis client doesn't have direct equivalents for ConnMaxLifetime and ConnMaxIdleTime
-	// These are handled internally by the Redis client
 
 	// Apply Redis-specific options
 	if options, ok := config.Options["redis"]; ok {
-		if redisOpts, ok := options.(map[string]interface{}); ok {
-			if dialTimeout, ok := redisOpts["dial_timeout"].(time.Duration); ok {
-				opts.DialTimeout = dialTimeout
-			}
-			if readTimeout, ok := redisOpts["read_timeout"].(time.Duration); ok {
-				opts.ReadTimeout = readTimeout
-			}
-			if writeTimeout, ok := redisOpts["write_timeout"].(time.Duration); ok {
-				opts.WriteTimeout = writeTimeout
-			}
+		if redisOptions, ok := options.(map[string]interface{}); ok {
+			applyRedisOptions(opts, redisOptions)
 		}
 	}
 
 	// Create Redis client
-	provider.client = redis.NewClient(opts)
+	client := redis.NewClient(opts)
 
-	// Test connection
-	if err := provider.Health(); err != nil {
-		return nil, gpa.GPAError{
-			Type:    gpa.ErrorTypeConnection,
-			Message: "failed to connect to Redis",
-			Cause:   err,
-		}
+	// Test the connection
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := client.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
+	provider.client = client
 	return provider, nil
-}
-
-// SupportedDrivers returns the list of supported Redis drivers
-func (f *Factory) SupportedDrivers() []string {
-	return []string{"redis"}
-}
-
-// Repository returns a repository for the given entity type
-func (p *Provider) Repository(entityType reflect.Type) gpa.Repository {
-	return &Repository{
-		provider:   p,
-		client:     p.client,
-		entityType: entityType,
-		keyPrefix:  strings.ToLower(entityType.Name()),
-	}
-}
-
-// RepositoryFor returns a repository for the given entity instance
-func (p *Provider) RepositoryFor(entity interface{}) gpa.Repository {
-	entityType := reflect.TypeOf(entity)
-	if entityType.Kind() == reflect.Ptr {
-		entityType = entityType.Elem()
-	}
-	return p.Repository(entityType)
 }
 
 // Configure applies configuration to the provider
@@ -115,11 +60,10 @@ func (p *Provider) Configure(config gpa.Config) error {
 	return nil
 }
 
-// Health checks the connection to Redis
+// Health checks if the Redis connection is healthy
 func (p *Provider) Health() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
 	return p.client.Ping(ctx).Err()
 }
 
@@ -131,10 +75,11 @@ func (p *Provider) Close() error {
 // SupportedFeatures returns the features supported by Redis
 func (p *Provider) SupportedFeatures() []gpa.Feature {
 	return []gpa.Feature{
+		gpa.FeatureTTL,
+		gpa.FeatureAtomicOps,
 		gpa.FeaturePubSub,
-		gpa.FeatureIndexing,
 		gpa.FeatureStreaming,
-		gpa.FeatureReplication,
+		gpa.FeatureTransactions,
 	}
 }
 
@@ -142,378 +87,202 @@ func (p *Provider) SupportedFeatures() []gpa.Feature {
 func (p *Provider) ProviderInfo() gpa.ProviderInfo {
 	return gpa.ProviderInfo{
 		Name:         "Redis",
-		Version:      "7.0",
+		Version:      "1.0.0",
 		DatabaseType: gpa.DatabaseTypeKV,
 		Features:     p.SupportedFeatures(),
 	}
 }
 
-// =====================================
-// Repository Implementation
-// =====================================
+// NewTypeSafeProvider creates a new type-safe Redis provider
+func NewTypeSafeProvider[T any](config gpa.Config) (gpa.Provider[T], error) {
+	baseProvider, err := NewProvider(config)
+	if err != nil {
+		return nil, err
+	}
+	return &TypeSafeProvider[T]{provider: baseProvider}, nil
+}
 
-// Repository implements gpa.Repository and gpa.KeyValueRepository using Redis
-type Repository struct {
-	provider   *Provider
-	client     *redis.Client
-	entityType reflect.Type
-	keyPrefix  string
+// TypeSafeProvider implements gpa.Provider[T] for Redis
+type TypeSafeProvider[T any] struct {
+	provider *Provider
+}
+
+// Repository returns a type-safe repository for Redis
+func (p *TypeSafeProvider[T]) Repository() gpa.Repository[T] {
+	return NewRepository[T](p.provider, p.provider.client, "")
+}
+
+// Configure applies configuration to the provider
+func (p *TypeSafeProvider[T]) Configure(config gpa.Config) error {
+	return p.provider.Configure(config)
+}
+
+// Health checks if the Redis connection is healthy
+func (p *TypeSafeProvider[T]) Health() error {
+	return p.provider.Health()
+}
+
+// Close closes the Redis connection
+func (p *TypeSafeProvider[T]) Close() error {
+	return p.provider.Close()
+}
+
+// SupportedFeatures returns the features supported by Redis
+func (p *TypeSafeProvider[T]) SupportedFeatures() []gpa.Feature {
+	return p.provider.SupportedFeatures()
+}
+
+// ProviderInfo returns information about the Redis provider
+func (p *TypeSafeProvider[T]) ProviderInfo() gpa.ProviderInfo {
+	return p.provider.ProviderInfo()
 }
 
 // =====================================
-// Key-Value Operations (KeyValueRepository interface)
+// Helper Functions for Tests
 // =====================================
 
-// Get retrieves a value by key
-func (r *Repository) Get(ctx context.Context, key string, dest interface{}) error {
-	fullKey := r.buildKey(key)
-	result := r.client.Get(ctx, fullKey)
-	if err := result.Err(); err != nil {
-		if err == redis.Nil {
-			return gpa.GPAError{
-				Type:    gpa.ErrorTypeNotFound,
-				Message: fmt.Sprintf("key not found: %s", key),
+// buildRedisOptions creates Redis connection options from GPA config
+func buildRedisOptions(config gpa.Config) (*redis.Options, error) {
+	opts := &redis.Options{}
+
+	// Parse connection URL if provided
+	if config.ConnectionURL != "" {
+		opts.Addr = "localhost:6379" // Default
+		opts.DB = 0                  // Default
+
+		// Simple URL parsing for redis://[username:password@]host[:port][/db]
+		url := config.ConnectionURL
+		if strings.HasPrefix(url, "redis://") {
+			url = strings.TrimPrefix(url, "redis://")
+		}
+
+		// Split by @ to separate auth from host
+		parts := strings.Split(url, "@")
+		var hostPart string
+		if len(parts) == 2 {
+			// Has auth
+			authPart := parts[0]
+			hostPart = parts[1]
+			
+			// Parse username:password
+			if strings.Contains(authPart, ":") {
+				authParts := strings.Split(authPart, ":")
+				opts.Username = authParts[0]
+				opts.Password = authParts[1]
+			} else {
+				opts.Password = authPart
 			}
+		} else {
+			hostPart = parts[0]
 		}
-		return convertRedisError(err)
-	}
 
-	data, err := result.Bytes()
-	if err != nil {
-		return convertRedisError(err)
-	}
-
-	return json.Unmarshal(data, dest)
-}
-
-// Set stores a value with a key (BasicKeyValueRepository interface)
-func (r *Repository) Set(ctx context.Context, key string, value interface{}) error {
-	return r.SetWithTTL(ctx, key, value, 0)
-}
-
-// SetWithTTL stores a value with a key and TTL (TTLKeyValueRepository interface)
-func (r *Repository) SetWithTTL(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
-	fullKey := r.buildKey(key)
-	
-	data, err := json.Marshal(value)
-	if err != nil {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeSerialization,
-			Message: "failed to serialize value",
-			Cause:   err,
-		}
-	}
-
-	return convertRedisError(r.client.Set(ctx, fullKey, data, ttl).Err())
-}
-
-// DeleteKey removes a key (KeyValueRepository-style method)
-func (r *Repository) DeleteKey(ctx context.Context, key string) error {
-	fullKey := r.buildKey(key)
-	return convertRedisError(r.client.Del(ctx, fullKey).Err())
-}
-
-// ExistsKey checks if a key exists (KeyValueRepository-style method)
-func (r *Repository) ExistsKey(ctx context.Context, key string) (bool, error) {
-	fullKey := r.buildKey(key)
-	count, err := r.client.Exists(ctx, fullKey).Result()
-	if err != nil {
-		return false, convertRedisError(err)
-	}
-	return count > 0, nil
-}
-
-// MGet retrieves multiple values by keys
-func (r *Repository) MGet(ctx context.Context, keys []string, dest interface{}) error {
-	if len(keys) == 0 {
-		return nil
-	}
-
-	fullKeys := make([]string, len(keys))
-	for i, key := range keys {
-		fullKeys[i] = r.buildKey(key)
-	}
-
-	values, err := r.client.MGet(ctx, fullKeys...).Result()
-	if err != nil {
-		return convertRedisError(err)
-	}
-
-	results := make([]interface{}, 0, len(values))
-	for _, val := range values {
-		if val != nil {
-			var item interface{}
-			if strVal, ok := val.(string); ok {
-				if err := json.Unmarshal([]byte(strVal), &item); err == nil {
-					results = append(results, item)
+		// Parse host:port/db
+		if strings.Contains(hostPart, "/") {
+			hostDbParts := strings.Split(hostPart, "/")
+			hostPart = hostDbParts[0]
+			if len(hostDbParts) > 1 && hostDbParts[1] != "" {
+				if db, err := strconv.Atoi(hostDbParts[1]); err == nil {
+					opts.DB = db
 				}
 			}
 		}
-	}
 
-	// Set the results to the destination
-	destValue := reflect.ValueOf(dest)
-	if destValue.Kind() != reflect.Ptr || destValue.Elem().Kind() != reflect.Slice {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeInvalidArgument,
-			Message: "dest must be a pointer to a slice",
+		// Set address
+		if hostPart != "" {
+			opts.Addr = hostPart
 		}
-	}
-
-	sliceValue := destValue.Elem()
-	sliceType := sliceValue.Type().Elem()
-	
-	for _, result := range results {
-		itemValue := reflect.ValueOf(result)
-		if itemValue.Type().ConvertibleTo(sliceType) {
-			sliceValue = reflect.Append(sliceValue, itemValue.Convert(sliceType))
+	} else {
+		// Use individual parameters
+		host := config.Host
+		port := config.Port
+		if host == "" {
+			host = "localhost"
 		}
-	}
-	
-	destValue.Elem().Set(sliceValue)
-	return nil
-}
-
-// MSet stores multiple key-value pairs (BatchKeyValueRepository interface)
-func (r *Repository) MSet(ctx context.Context, pairs map[string]interface{}) error {
-	return r.MSetWithTTL(ctx, pairs, 0)
-}
-
-// MSetWithTTL stores multiple key-value pairs with TTL
-func (r *Repository) MSetWithTTL(ctx context.Context, pairs map[string]interface{}, ttl time.Duration) error {
-	if len(pairs) == 0 {
-		return nil
-	}
-
-	// Use pipeline for better performance
-	pipe := r.client.Pipeline()
-	
-	for key, value := range pairs {
-		fullKey := r.buildKey(key)
-		data, err := json.Marshal(value)
-		if err != nil {
-			return gpa.GPAError{
-				Type:    gpa.ErrorTypeSerialization,
-				Message: fmt.Sprintf("failed to serialize value for key %s", key),
-				Cause:   err,
+		if port == 0 {
+			port = 6379
+		}
+		opts.Addr = fmt.Sprintf("%s:%d", host, port)
+		opts.Username = config.Username
+		opts.Password = config.Password
+		
+		// Parse database number
+		if config.Database != "" {
+			if db, err := strconv.Atoi(config.Database); err == nil {
+				opts.DB = db
+			} else {
+				return nil, fmt.Errorf("invalid database number: %s", config.Database)
 			}
 		}
-		pipe.Set(ctx, fullKey, data, ttl)
 	}
 
-	_, err := pipe.Exec(ctx)
-	return convertRedisError(err)
-}
-
-// MDelete removes multiple keys
-func (r *Repository) MDelete(ctx context.Context, keys []string) error {
-	if len(keys) == 0 {
-		return nil
+	// Apply connection pool settings
+	if config.MaxOpenConns > 0 {
+		opts.PoolSize = config.MaxOpenConns
+	}
+	if config.MaxIdleConns > 0 {
+		opts.MinIdleConns = config.MaxIdleConns
 	}
 
-	fullKeys := make([]string, len(keys))
-	for i, key := range keys {
-		fullKeys[i] = r.buildKey(key)
-	}
-
-	return convertRedisError(r.client.Del(ctx, fullKeys...).Err())
+	return opts, nil
 }
 
-// Increment increments a numeric value
-func (r *Repository) Increment(ctx context.Context, key string, delta int64) (int64, error) {
-	fullKey := r.buildKey(key)
-	result, err := r.client.IncrBy(ctx, fullKey, delta).Result()
-	if err != nil {
-		return 0, convertRedisError(err)
-	}
-	return result, nil
-}
-
-// Decrement decrements a numeric value
-func (r *Repository) Decrement(ctx context.Context, key string, delta int64) (int64, error) {
-	fullKey := r.buildKey(key)
-	result, err := r.client.DecrBy(ctx, fullKey, delta).Result()
-	if err != nil {
-		return 0, convertRedisError(err)
-	}
-	return result, nil
-}
-
-// Expire sets TTL for a key
-func (r *Repository) Expire(ctx context.Context, key string, ttl time.Duration) error {
-	fullKey := r.buildKey(key)
-	return convertRedisError(r.client.Expire(ctx, fullKey, ttl).Err())
-}
-
-// TTL returns the TTL of a key
-func (r *Repository) TTL(ctx context.Context, key string) (time.Duration, error) {
-	fullKey := r.buildKey(key)
-	ttl, err := r.client.TTL(ctx, fullKey).Result()
-	if err != nil {
-		return 0, convertRedisError(err)
-	}
-	return ttl, nil
-}
-
-// Keys returns keys matching a pattern
-func (r *Repository) Keys(ctx context.Context, pattern string) ([]string, error) {
-	fullPattern := r.buildKey(pattern)
-	keys, err := r.client.Keys(ctx, fullPattern).Result()
-	if err != nil {
-		return nil, convertRedisError(err)
-	}
-
-	// Remove prefix from returned keys
-	result := make([]string, len(keys))
-	prefix := r.keyPrefix + ":"
-	for i, key := range keys {
-		result[i] = strings.TrimPrefix(key, prefix)
-	}
-	
-	return result, nil
-}
-
-// Scan scans keys matching a pattern with cursor-based pagination
-func (r *Repository) Scan(ctx context.Context, cursor uint64, pattern string, count int64) ([]string, uint64, error) {
-	fullPattern := r.buildKey(pattern)
-	keys, newCursor, err := r.client.Scan(ctx, cursor, fullPattern, count).Result()
-	if err != nil {
-		return nil, 0, convertRedisError(err)
-	}
-
-	// Remove prefix from returned keys
-	result := make([]string, len(keys))
-	prefix := r.keyPrefix + ":"
-	for i, key := range keys {
-		result[i] = strings.TrimPrefix(key, prefix)
-	}
-	
-	return result, newCursor, nil
-}
-
-// =====================================
-// KeyValueRepository Interface Adapter
-// =====================================
-
-// AsKeyValue returns the repository as a KeyValueRepository interface
-func (r *Repository) AsKeyValue() gpa.KeyValueRepository {
-	return &KeyValueAdapter{r}
-}
-
-// KeyValueAdapter adapts Repository to KeyValueRepository interface
-type KeyValueAdapter struct {
-	*Repository
-}
-
-// Delete implements KeyValueRepository.Delete with string key
-func (kv *KeyValueAdapter) Delete(ctx context.Context, key string) error {
-	return kv.Repository.DeleteKey(ctx, key)
-}
-
-// Exists implements KeyValueRepository.Exists with string key  
-func (kv *KeyValueAdapter) Exists(ctx context.Context, key string) (bool, error) {
-	return kv.Repository.ExistsKey(ctx, key)
-}
-
-// =====================================
-// Basic Repository Operations
-// =====================================
-
-// Create stores an entity using its ID as the key
-func (r *Repository) Create(ctx context.Context, entity interface{}) error {
-	id, err := r.extractID(entity)
-	if err != nil {
-		return err
-	}
-
-	key := fmt.Sprintf("%v", id)
-	return r.Set(ctx, key, entity) // No TTL for created entities
-}
-
-// CreateBatch creates multiple entities
-func (r *Repository) CreateBatch(ctx context.Context, entities interface{}) error {
-	entitiesValue := reflect.ValueOf(entities)
-	if entitiesValue.Kind() != reflect.Slice {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeInvalidArgument,
-			Message: "entities must be a slice",
+// applyRedisOptions applies Redis-specific options to the connection options
+func applyRedisOptions(opts *redis.Options, redisOptions map[string]interface{}) {
+	if maxRetries, ok := redisOptions["max_retries"]; ok {
+		if retries, ok := maxRetries.(int); ok {
+			opts.MaxRetries = retries
 		}
 	}
 
-	pairs := make(map[string]interface{})
-	for i := 0; i < entitiesValue.Len(); i++ {
-		entity := entitiesValue.Index(i).Interface()
-		id, err := r.extractID(entity)
-		if err != nil {
-			return err
-		}
-		key := fmt.Sprintf("%v", id)
-		pairs[key] = entity
-	}
-
-	return r.MSet(ctx, pairs)
-}
-
-// FindByID retrieves an entity by its ID
-func (r *Repository) FindByID(ctx context.Context, id interface{}, dest interface{}) error {
-	key := fmt.Sprintf("%v", id)
-	return r.Get(ctx, key, dest)
-}
-
-// buildKey constructs the full Redis key with prefix
-func (r *Repository) buildKey(key string) string {
-	return fmt.Sprintf("%s:%s", r.keyPrefix, key)
-}
-
-// extractID extracts the ID field from an entity
-func (r *Repository) extractID(entity interface{}) (interface{}, error) {
-	entityValue := reflect.ValueOf(entity)
-	if entityValue.Kind() == reflect.Ptr {
-		entityValue = entityValue.Elem()
-	}
-
-	if entityValue.Kind() != reflect.Struct {
-		return nil, gpa.GPAError{
-			Type:    gpa.ErrorTypeInvalidArgument,
-			Message: "entity must be a struct",
+	if poolSize, ok := redisOptions["pool_size"]; ok {
+		if size, ok := poolSize.(int); ok && size > 0 {
+			opts.PoolSize = size
 		}
 	}
 
-	// Look for ID field (case-insensitive)
-	entityType := entityValue.Type()
-	for i := 0; i < entityType.NumField(); i++ {
-		field := entityType.Field(i)
-		if strings.ToLower(field.Name) == "id" {
-			return entityValue.Field(i).Interface(), nil
+	if minIdleConns, ok := redisOptions["min_idle_conns"]; ok {
+		if conns, ok := minIdleConns.(int); ok && conns >= 0 {
+			opts.MinIdleConns = conns
 		}
 	}
 
-	return nil, gpa.GPAError{
-		Type:    gpa.ErrorTypeInvalidArgument,
-		Message: "entity must have an ID field",
-	}
-}
-
-// =====================================
-// Error Conversion
-// =====================================
-
-// convertRedisError converts Redis errors to GPA errors
-func convertRedisError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	if err == redis.Nil {
-		return gpa.GPAError{
-			Type:    gpa.ErrorTypeNotFound,
-			Message: "key not found",
+	if dialTimeout, ok := redisOptions["dial_timeout"]; ok {
+		if timeout, ok := dialTimeout.(time.Duration); ok {
+			opts.DialTimeout = timeout
+		} else if timeoutStr, ok := dialTimeout.(string); ok {
+			if timeout, err := time.ParseDuration(timeoutStr); err == nil {
+				opts.DialTimeout = timeout
+			}
 		}
 	}
 
-	return gpa.GPAError{
-		Type:    gpa.ErrorTypeDatabase,
-		Message: "Redis operation failed",
-		Cause:   err,
+	if readTimeout, ok := redisOptions["read_timeout"]; ok {
+		if timeout, ok := readTimeout.(time.Duration); ok {
+			opts.ReadTimeout = timeout
+		} else if timeoutStr, ok := readTimeout.(string); ok {
+			if timeout, err := time.ParseDuration(timeoutStr); err == nil {
+				opts.ReadTimeout = timeout
+			}
+		}
+	}
+
+	if writeTimeout, ok := redisOptions["write_timeout"]; ok {
+		if timeout, ok := writeTimeout.(time.Duration); ok {
+			opts.WriteTimeout = timeout
+		} else if timeoutStr, ok := writeTimeout.(string); ok {
+			if timeout, err := time.ParseDuration(timeoutStr); err == nil {
+				opts.WriteTimeout = timeout
+			}
+		}
+	}
+
+	if poolTimeout, ok := redisOptions["pool_timeout"]; ok {
+		if timeout, ok := poolTimeout.(time.Duration); ok {
+			opts.PoolTimeout = timeout
+		} else if timeoutStr, ok := poolTimeout.(string); ok {
+			if timeout, err := time.ParseDuration(timeoutStr); err == nil {
+				opts.PoolTimeout = timeout
+			}
+		}
 	}
 }

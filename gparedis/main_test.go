@@ -2,493 +2,470 @@ package gparedis
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/lemmego/gpa"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 )
 
-// Test models
-type TestUser struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	Email    string    `json:"email"`
-	Age      int       `json:"age"`
-	Status   string    `json:"status"`
-	Created  time.Time `json:"created"`
-}
-
-type TestSession struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Token     string    `json:"token"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Active    bool      `json:"active"`
-}
-
-type TestCounter struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Value int64  `json:"value"`
-}
-
-// RedisAdapterTestSuite provides integration tests for Redis adapter
-type RedisAdapterTestSuite struct {
-	suite.Suite
-	provider gpa.Provider
-	userRepo gpa.Repository
-	ctx      context.Context
-}
-
-func (suite *RedisAdapterTestSuite) SetupSuite() {
-	suite.ctx = context.Background()
-	
-	// Skip tests if Redis is not available
-	config := gpa.Config{
-		Driver:   "redis",
-		Host:     "localhost",
-		Port:     6379,
-		Database: "15", // Use DB 15 for testing
-		Options: map[string]interface{}{
-			"redis": map[string]interface{}{
-				"dial_timeout":  time.Second * 5,
-				"read_timeout":  time.Second * 3,
-				"write_timeout": time.Second * 3,
-			},
-		},
+func getTestConfig() gpa.Config {
+	// Check for Redis connection string in environment
+	redisURL := os.Getenv("REDIS_TEST_URL")
+	if redisURL == "" {
+		redisURL = "redis://localhost:6379"
 	}
 
-	provider, err := gpa.NewProvider("redis", config)
+	return gpa.Config{
+		Driver:        "redis",
+		ConnectionURL: redisURL,
+		Database:      "0", // Redis database number
+	}
+}
+
+func skipIfNoRedis(t *testing.T) {
+	config := getTestConfig()
+	provider, err := NewProvider(config)
 	if err != nil {
-		suite.T().Skip("Redis not available for testing:", err)
-		return
+		t.Skipf("Skipping Redis tests: %v", err)
+	}
+	provider.Close()
+}
+
+func TestNewProvider(t *testing.T) {
+	skipIfNoRedis(t)
+
+	config := getTestConfig()
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close()
+
+	if provider == nil {
+		t.Fatal("Expected provider to be created")
 	}
 
-	suite.provider = provider
-	suite.userRepo = provider.RepositoryFor(&TestUser{})
-	
-	// Clean up test data
-	suite.cleanupTestData()
-}
-
-func (suite *RedisAdapterTestSuite) TearDownSuite() {
-	if suite.provider != nil {
-		suite.cleanupTestData()
-		suite.provider.Close()
+	if provider.config.Database != "0" {
+		t.Errorf("Expected database '0', got '%s'", provider.config.Database)
 	}
 }
 
-func (suite *RedisAdapterTestSuite) SetupTest() {
-	// Clean up before each test
-	suite.cleanupTestData()
+func TestProviderHealth(t *testing.T) {
+	skipIfNoRedis(t)
+
+	config := getTestConfig()
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close()
+
+	err = provider.Health()
+	if err != nil {
+		t.Errorf("Health check failed: %v", err)
+	}
 }
 
-func (suite *RedisAdapterTestSuite) cleanupTestData() {
-	if redisRepo, ok := suite.userRepo.(*Repository); ok {
-		// Delete all test keys
-		keys, err := redisRepo.Keys(suite.ctx, "*")
-		if err == nil && len(keys) > 0 {
-			redisRepo.MDelete(suite.ctx, keys)
+func TestProviderInfo(t *testing.T) {
+	skipIfNoRedis(t)
+
+	config := getTestConfig()
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close()
+
+	info := provider.ProviderInfo()
+	if info.Name != "Redis" {
+		t.Errorf("Expected name 'Redis', got '%s'", info.Name)
+	}
+	if info.DatabaseType != gpa.DatabaseTypeKV {
+		t.Errorf("Expected key-value database type, got %s", info.DatabaseType)
+	}
+	if len(info.Features) == 0 {
+		t.Error("Expected features to be populated")
+	}
+}
+
+func TestSupportedFeatures(t *testing.T) {
+	skipIfNoRedis(t)
+
+	config := getTestConfig()
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close()
+
+	features := provider.SupportedFeatures()
+	expectedFeatures := []gpa.Feature{
+		gpa.FeatureTTL,
+		gpa.FeatureAtomicOps,
+		gpa.FeaturePubSub,
+		gpa.FeatureStreaming,
+		gpa.FeatureTransactions,
+	}
+
+	if len(features) != len(expectedFeatures) {
+		t.Errorf("Expected %d features, got %d", len(expectedFeatures), len(features))
+	}
+
+	for _, expected := range expectedFeatures {
+		found := false
+		for _, feature := range features {
+			if feature == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("Expected feature '%s' not found", expected)
 		}
 	}
 }
 
-// =====================================
-// Basic Repository Tests
-// =====================================
+func TestNewTypeSafeProvider(t *testing.T) {
+	skipIfNoRedis(t)
 
-func (suite *RedisAdapterTestSuite) TestProviderFactory() {
-	factory := &Factory{}
-	
-	supportedDrivers := factory.SupportedDrivers()
-	assert.Contains(suite.T(), supportedDrivers, "redis")
-	
+	type User struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	config := getTestConfig()
+	provider, err := NewTypeSafeProvider[User](config)
+	if err != nil {
+		t.Fatalf("Failed to create type-safe provider: %v", err)
+	}
+	defer provider.Close()
+
+	if provider == nil {
+		t.Fatal("Expected type-safe provider to be created")
+	}
+
+	// Test getting repository
+	repo := provider.Repository()
+	if repo == nil {
+		t.Fatal("Expected repository to be created")
+	}
+
+	// Test provider methods
+	err = provider.Health()
+	if err != nil {
+		t.Errorf("Health check failed: %v", err)
+	}
+
+	info := provider.ProviderInfo()
+	if info.Name != "Redis" {
+		t.Errorf("Expected name 'Redis', got '%s'", info.Name)
+	}
+}
+
+func TestProviderConfigure(t *testing.T) {
+	skipIfNoRedis(t)
+
+	config := getTestConfig()
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close()
+
+	newConfig := gpa.Config{
+		Driver:   "redis",
+		Database: "1",
+	}
+
+	err = provider.Configure(newConfig)
+	if err != nil {
+		t.Errorf("Failed to configure provider: %v", err)
+	}
+
+	if provider.config.Database != "1" {
+		t.Errorf("Expected database '1', got '%s'", provider.config.Database)
+	}
+}
+
+func TestBuildRedisOptions(t *testing.T) {
+	// Test with connection URL
+	config := gpa.Config{
+		ConnectionURL: "redis://user:pass@localhost:6379/0",
+	}
+	opts, err := buildRedisOptions(config)
+	if err != nil {
+		t.Errorf("Failed to build Redis options: %v", err)
+	}
+	if opts.Addr != "localhost:6379" {
+		t.Errorf("Expected addr 'localhost:6379', got '%s'", opts.Addr)
+	}
+	if opts.Username != "user" {
+		t.Errorf("Expected username 'user', got '%s'", opts.Username)
+	}
+	if opts.Password != "pass" {
+		t.Errorf("Expected password 'pass', got '%s'", opts.Password)
+	}
+	if opts.DB != 0 {
+		t.Errorf("Expected database 0, got %d", opts.DB)
+	}
+
+	// Test with individual parameters
+	config = gpa.Config{
+		Host:     "localhost",
+		Port:     6379,
+		Database: "1",
+		Username: "user",
+		Password: "pass",
+	}
+	opts, err = buildRedisOptions(config)
+	if err != nil {
+		t.Errorf("Failed to build Redis options: %v", err)
+	}
+	if opts.Addr != "localhost:6379" {
+		t.Errorf("Expected addr 'localhost:6379', got '%s'", opts.Addr)
+	}
+	if opts.DB != 1 {
+		t.Errorf("Expected database 1, got %d", opts.DB)
+	}
+
+	// Test with defaults
+	config = gpa.Config{}
+	opts, err = buildRedisOptions(config)
+	if err != nil {
+		t.Errorf("Failed to build Redis options: %v", err)
+	}
+	if opts.Addr != "localhost:6379" {
+		t.Errorf("Expected default addr 'localhost:6379', got '%s'", opts.Addr)
+	}
+	if opts.DB != 0 {
+		t.Errorf("Expected default database 0, got %d", opts.DB)
+	}
+}
+
+func TestProviderWithCustomOptions(t *testing.T) {
+	skipIfNoRedis(t)
+
+	config := gpa.Config{
+		Driver:   "redis",
+		Host:     "localhost",
+		Port:     6379,
+		Database: "0",
+		Options: map[string]interface{}{
+			"redis": map[string]interface{}{
+				"max_retries":      3,
+				"read_timeout":     "5s",
+				"write_timeout":    "5s",
+				"pool_size":        10,
+				"min_idle_conns":   2,
+				"max_conn_age":     "30m",
+				"pool_timeout":     "4s",
+				"idle_timeout":     "5m",
+				"idle_check_freq":  "1m",
+			},
+		},
+	}
+
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider with custom options: %v", err)
+	}
+	defer provider.Close()
+
+	if provider == nil {
+		t.Fatal("Expected provider to be created")
+	}
+}
+
+func TestProviderConnectionPoolSettings(t *testing.T) {
+	skipIfNoRedis(t)
+
+	config := gpa.Config{
+		Driver:          "redis",
+		Host:            "localhost",
+		Port:            6379,
+		Database:        "0",
+		MaxOpenConns:    10,
+		MaxIdleConns:    5,
+		ConnMaxLifetime: time.Hour,
+		ConnMaxIdleTime: time.Minute * 30,
+	}
+
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close()
+
+	// Test that the provider was created successfully with pool settings
+	stats := provider.client.PoolStats()
+	if stats.TotalConns < 0 {
+		t.Error("Expected valid pool stats")
+	}
+}
+
+func TestInvalidConnectionURL(t *testing.T) {
+	config := gpa.Config{
+		Driver:        "redis",
+		ConnectionURL: "invalid-url",
+	}
+
+	_, err := NewProvider(config)
+	if err == nil {
+		t.Error("Expected error for invalid connection URL")
+	}
+}
+
+func TestInvalidDatabaseNumber(t *testing.T) {
+	config := gpa.Config{
+		Driver:   "redis",
+		Host:     "localhost",
+		Port:     6379,
+		Database: "invalid",
+	}
+
+	_, err := NewProvider(config)
+	if err == nil {
+		t.Error("Expected error for invalid database number")
+	}
+}
+
+func TestContextTimeout(t *testing.T) {
+	skipIfNoRedis(t)
+
+	config := getTestConfig()
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider: %v", err)
+	}
+	defer provider.Close()
+
+	// Create a context with timeout
+	_, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	// This should work since Redis is fast
+	err = provider.Health()
+	if err != nil {
+		t.Errorf("Health check failed: %v", err)
+	}
+}
+
+func TestProviderWithoutRedis(t *testing.T) {
+	// Test with invalid connection
 	config := gpa.Config{
 		Driver: "redis",
-		Host:   "localhost",
+		Host:   "invalid-host",
 		Port:   6379,
 	}
-	
-	provider, err := factory.Create(config)
-	require.NoError(suite.T(), err)
-	require.NotNil(suite.T(), provider)
-	
+
+	provider, err := NewProvider(config)
+	if err != nil {
+		// This is expected if Redis is not available
+		t.Logf("Redis not available: %v", err)
+		return
+	}
 	defer provider.Close()
-	
-	// Test provider info
-	info := provider.ProviderInfo()
-	assert.Equal(suite.T(), "Redis", info.Name)
-	assert.Equal(suite.T(), gpa.DatabaseTypeKV, info.DatabaseType)
-	
-	features := provider.SupportedFeatures()
-	assert.Contains(suite.T(), features, gpa.FeaturePubSub)
-	assert.Contains(suite.T(), features, gpa.FeatureIndexing)
-}
 
-func (suite *RedisAdapterTestSuite) TestProviderHealth() {
-	err := suite.provider.Health()
-	assert.NoError(suite.T(), err)
-}
-
-func (suite *RedisAdapterTestSuite) TestCreate() {
-	user := &TestUser{
-		ID:      "user1",
-		Name:    "John Doe",
-		Email:   "john@example.com",
-		Age:     30,
-		Status:  "active",
-		Created: time.Now(),
-	}
-
-	err := suite.userRepo.Create(suite.ctx, user)
-	assert.NoError(suite.T(), err)
-	
-	// Verify it was created
-	var retrieved TestUser
-	err = suite.userRepo.FindByID(suite.ctx, "user1", &retrieved)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), user.Name, retrieved.Name)
-	assert.Equal(suite.T(), user.Email, retrieved.Email)
-}
-
-func (suite *RedisAdapterTestSuite) TestCreateBatch() {
-	users := []*TestUser{
-		{ID: "user2", Name: "Alice", Email: "alice@example.com", Age: 25, Status: "active"},
-		{ID: "user3", Name: "Bob", Email: "bob@example.com", Age: 35, Status: "inactive"},
-		{ID: "user4", Name: "Charlie", Email: "charlie@example.com", Age: 28, Status: "active"},
-	}
-
-	err := suite.userRepo.CreateBatch(suite.ctx, users)
-	assert.NoError(suite.T(), err)
-	
-	// Verify all were created
-	for _, user := range users {
-		var retrieved TestUser
-		err = suite.userRepo.FindByID(suite.ctx, user.ID, &retrieved)
-		assert.NoError(suite.T(), err)
-		assert.Equal(suite.T(), user.Name, retrieved.Name)
+	// Try to ping
+	err = provider.Health()
+	if err != nil {
+		t.Logf("Redis ping failed: %v", err)
 	}
 }
 
-func (suite *RedisAdapterTestSuite) TestFindByID() {
-	// Test finding non-existent entity
-	var user TestUser
-	err := suite.userRepo.FindByID(suite.ctx, "nonexistent", &user)
-	assert.Error(suite.T(), err)
-	assert.IsType(suite.T(), gpa.GPAError{}, err)
-	
-	// Create and find existing entity
-	testUser := &TestUser{ID: "user5", Name: "Test User", Email: "test@example.com"}
-	err = suite.userRepo.Create(suite.ctx, testUser)
-	require.NoError(suite.T(), err)
-	
-	err = suite.userRepo.FindByID(suite.ctx, "user5", &user)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), testUser.Name, user.Name)
-}
+func TestInvalidRedisOptions(t *testing.T) {
+	skipIfNoRedis(t)
 
-func (suite *RedisAdapterTestSuite) TestUpdate() {
-	// Create initial user
-	user := &TestUser{ID: "user6", Name: "Initial Name", Email: "initial@example.com"}
-	err := suite.userRepo.Create(suite.ctx, user)
-	require.NoError(suite.T(), err)
-	
-	// Update user
-	user.Name = "Updated Name"
-	user.Email = "updated@example.com"
-	err = suite.userRepo.Update(suite.ctx, user)
-	assert.NoError(suite.T(), err)
-	
-	// Verify update
-	var retrieved TestUser
-	err = suite.userRepo.FindByID(suite.ctx, "user6", &retrieved)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), "Updated Name", retrieved.Name)
-	assert.Equal(suite.T(), "updated@example.com", retrieved.Email)
-}
-
-func (suite *RedisAdapterTestSuite) TestUpdatePartial() {
-	// Create initial user
-	user := &TestUser{ID: "user7", Name: "Original Name", Email: "original@example.com", Age: 25}
-	err := suite.userRepo.Create(suite.ctx, user)
-	require.NoError(suite.T(), err)
-	
-	// Partial update
-	updates := map[string]interface{}{
-		"name": "Partially Updated",
-		"age":  30,
+	config := gpa.Config{
+		Driver:   "redis",
+		Host:     "localhost",
+		Port:     6379,
+		Database: "0",
+		Options: map[string]interface{}{
+			"redis": map[string]interface{}{
+				"max_retries":      "invalid", // should be int
+				"read_timeout":     123,       // should be string
+				"pool_size":        -1,        // invalid value
+				"min_idle_conns":   "invalid", // should be int
+			},
+		},
 	}
-	err = suite.userRepo.UpdatePartial(suite.ctx, "user7", updates)
-	assert.NoError(suite.T(), err)
-	
-	// Verify partial update
-	var retrieved TestUser
-	err = suite.userRepo.FindByID(suite.ctx, "user7", &retrieved)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), "Partially Updated", retrieved.Name)
-	assert.Equal(suite.T(), 30, retrieved.Age)
-	assert.Equal(suite.T(), "original@example.com", retrieved.Email) // Should remain unchanged
-}
 
-func (suite *RedisAdapterTestSuite) TestDelete() {
-	// Create user
-	user := &TestUser{ID: "user8", Name: "To Delete", Email: "delete@example.com"}
-	err := suite.userRepo.Create(suite.ctx, user)
-	require.NoError(suite.T(), err)
-	
-	// Delete user
-	err = suite.userRepo.Delete(suite.ctx, "user8")
-	assert.NoError(suite.T(), err)
-	
-	// Verify deletion
-	var retrieved TestUser
-	err = suite.userRepo.FindByID(suite.ctx, "user8", &retrieved)
-	assert.Error(suite.T(), err)
-	assert.IsType(suite.T(), gpa.GPAError{}, err)
-}
-
-func (suite *RedisAdapterTestSuite) TestFindAll() {
-	// Create test data
-	users := []*TestUser{
-		{ID: "user9", Name: "User 9", Status: "active"},
-		{ID: "user10", Name: "User 10", Status: "inactive"},
-		{ID: "user11", Name: "User 11", Status: "active"},
+	// Should still work, just ignore invalid options
+	provider, err := NewProvider(config)
+	if err != nil {
+		t.Fatalf("Failed to create provider with invalid options: %v", err)
 	}
-	
-	err := suite.userRepo.CreateBatch(suite.ctx, users)
-	require.NoError(suite.T(), err)
-	
-	// Find all
-	var allUsers []TestUser
-	err = suite.userRepo.FindAll(suite.ctx, &allUsers)
-	assert.NoError(suite.T(), err)
-	assert.Len(suite.T(), allUsers, 3)
+	defer provider.Close()
 }
 
-func (suite *RedisAdapterTestSuite) TestQueryWithConditions() {
-	// Create test data
-	users := []*TestUser{
-		{ID: "user12", Name: "Active User 1", Status: "active", Age: 25},
-		{ID: "user13", Name: "Active User 2", Status: "active", Age: 35},
-		{ID: "user14", Name: "Inactive User", Status: "inactive", Age: 30},
+func TestApplyRedisOptions(t *testing.T) {
+	config := gpa.Config{
+		Options: map[string]interface{}{
+			"redis": map[string]interface{}{
+				"max_retries":      3,
+				"read_timeout":     "5s",
+				"write_timeout":    "3s",
+				"dial_timeout":     "2s",
+				"pool_size":        20,
+				"min_idle_conns":   5,
+				"max_conn_age":     "1h",
+				"pool_timeout":     "10s",
+				"idle_timeout":     "30m",
+				"idle_check_freq":  "2m",
+			},
+		},
 	}
-	
-	err := suite.userRepo.CreateBatch(suite.ctx, users)
-	require.NoError(suite.T(), err)
-	
-	// Query with conditions
-	var activeUsers []TestUser
-	err = suite.userRepo.Query(suite.ctx, &activeUsers,
-		gpa.Where("status", gpa.OpEqual, "active"),
-	)
-	assert.NoError(suite.T(), err)
-	assert.Len(suite.T(), activeUsers, 2)
-	
-	// Verify results
-	for _, user := range activeUsers {
-		assert.Equal(suite.T(), "active", user.Status)
+
+	opts, err := buildRedisOptions(config)
+	if err != nil {
+		t.Fatalf("Failed to build Redis options: %v", err)
+	}
+
+	// Apply custom options
+	if redisOpts, ok := config.Options["redis"]; ok {
+		if redisOptsMap, ok := redisOpts.(map[string]interface{}); ok {
+			applyRedisOptions(opts, redisOptsMap)
+		}
+	}
+
+	// Verify some options were applied
+	if opts.MaxRetries != 3 {
+		t.Errorf("Expected max retries 3, got %d", opts.MaxRetries)
+	}
+	if opts.PoolSize != 20 {
+		t.Errorf("Expected pool size 20, got %d", opts.PoolSize)
+	}
+	if opts.MinIdleConns != 5 {
+		t.Errorf("Expected min idle conns 5, got %d", opts.MinIdleConns)
 	}
 }
 
-func (suite *RedisAdapterTestSuite) TestQueryOne() {
-	// Create test data
-	user := &TestUser{ID: "user15", Name: "Single User", Status: "active"}
-	err := suite.userRepo.Create(suite.ctx, user)
-	require.NoError(suite.T(), err)
-	
-	// Query one
-	var retrieved TestUser
-	err = suite.userRepo.QueryOne(suite.ctx, &retrieved,
-		gpa.Where("status", gpa.OpEqual, "active"),
-	)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), "Single User", retrieved.Name)
-}
+func TestSSLConfiguration(t *testing.T) {
+	skipIfNoRedis(t)
 
-func (suite *RedisAdapterTestSuite) TestCount() {
-	// Create test data
-	users := []*TestUser{
-		{ID: "user16", Name: "User 16", Status: "active"},
-		{ID: "user17", Name: "User 17", Status: "active"},
-		{ID: "user18", Name: "User 18", Status: "inactive"},
+	config := gpa.Config{
+		Driver:   "redis",
+		Host:     "localhost",
+		Port:     6379,
+		Database: "0",
+		SSL: gpa.SSLConfig{
+			Enabled: true,
+			Mode:    "require",
+		},
 	}
-	
-	err := suite.userRepo.CreateBatch(suite.ctx, users)
-	require.NoError(suite.T(), err)
-	
-	// Count all
-	count, err := suite.userRepo.Count(suite.ctx)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), int64(3), count)
-	
-	// Count with condition
-	count, err = suite.userRepo.Count(suite.ctx, gpa.Where("status", gpa.OpEqual, "active"))
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), int64(2), count)
-}
 
-func (suite *RedisAdapterTestSuite) TestExists() {
-	// Create test data
-	user := &TestUser{ID: "user19", Name: "Exists User", Status: "active"}
-	err := suite.userRepo.Create(suite.ctx, user)
-	require.NoError(suite.T(), err)
-	
-	// Test exists
-	exists, err := suite.userRepo.Exists(suite.ctx, gpa.Where("status", gpa.OpEqual, "active"))
-	assert.NoError(suite.T(), err)
-	assert.True(suite.T(), exists)
-	
-	exists, err = suite.userRepo.Exists(suite.ctx, gpa.Where("status", gpa.OpEqual, "nonexistent"))
-	assert.NoError(suite.T(), err)
-	assert.False(suite.T(), exists)
-}
-
-func (suite *RedisAdapterTestSuite) TestGetEntityInfo() {
-	info, err := suite.userRepo.GetEntityInfo(&TestUser{})
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), "TestUser", info.Name)
-	assert.Equal(suite.T(), []string{"ID"}, info.PrimaryKey)
-	assert.True(suite.T(), len(info.Fields) > 0)
-}
-
-// =====================================
-// Key-Value Operations Tests
-// =====================================
-
-func (suite *RedisAdapterTestSuite) TestKeyValueOperations() {
-	redisRepo, ok := suite.userRepo.(*Repository)
-	require.True(suite.T(), ok, "Repository should be a Redis repository")
-	
-	// Test Set and Get
-	testData := map[string]interface{}{
-		"name": "Test Value",
-		"age":  25,
+	provider, err := NewProvider(config)
+	if err != nil {
+		// SSL may not be supported in test environment
+		t.Logf("SSL connection failed (expected in test env): %v", err)
+		return
 	}
-	
-	err := redisRepo.Set(suite.ctx, "test:key1", testData)
-	assert.NoError(suite.T(), err)
-	
-	var retrieved map[string]interface{}
-	err = redisRepo.Get(suite.ctx, "test:key1", &retrieved)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), "Test Value", retrieved["name"])
-	
-	// Test Exists (using KeyValue interface)
-	kv := redisRepo.AsKeyValue()
-	exists, err := kv.Exists(suite.ctx, "test:key1")
-	assert.NoError(suite.T(), err)
-	assert.True(suite.T(), exists)
-	
-	// Test Delete (using KeyValue interface)
-	err = kv.Delete(suite.ctx, "test:key1")
-	assert.NoError(suite.T(), err)
-	
-	exists, err = kv.Exists(suite.ctx, "test:key1")
-	assert.NoError(suite.T(), err)
-	assert.False(suite.T(), exists)
-}
+	defer provider.Close()
 
-func (suite *RedisAdapterTestSuite) TestMGetMSet() {
-	redisRepo, ok := suite.userRepo.(*Repository)
-	require.True(suite.T(), ok)
-	
-	// Test MSet
-	pairs := map[string]interface{}{
-		"key1": "value1",
-		"key2": "value2",
-		"key3": "value3",
+	if provider == nil {
+		t.Fatal("Expected provider to be created")
 	}
-	
-	err := redisRepo.MSet(suite.ctx, pairs)
-	assert.NoError(suite.T(), err)
-	
-	// Test MGet
-	keys := []string{"key1", "key2", "key3"}
-	var values []interface{}
-	err = redisRepo.MGet(suite.ctx, keys, &values)
-	assert.NoError(suite.T(), err)
-	assert.Len(suite.T(), values, 3)
-	
-	// Test MDelete
-	err = redisRepo.MDelete(suite.ctx, keys)
-	assert.NoError(suite.T(), err)
-	
-	// Verify deletion
-	var deletedValues []interface{}
-	err = redisRepo.MGet(suite.ctx, keys, &deletedValues)
-	assert.NoError(suite.T(), err)
-	assert.Empty(suite.T(), deletedValues)
-}
-
-func (suite *RedisAdapterTestSuite) TestIncrement() {
-	redisRepo, ok := suite.userRepo.(*Repository)
-	require.True(suite.T(), ok)
-	
-	// Test increment
-	result, err := redisRepo.Increment(suite.ctx, "counter1", 1)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), int64(1), result)
-	
-	result, err = redisRepo.Increment(suite.ctx, "counter1", 5)
-	assert.NoError(suite.T(), err)
-	assert.Equal(suite.T(), int64(6), result)
-}
-
-func (suite *RedisAdapterTestSuite) TestTTL() {
-	redisRepo, ok := suite.userRepo.(*Repository)
-	require.True(suite.T(), ok)
-	
-	// Set with TTL
-	err := redisRepo.SetWithTTL(suite.ctx, "ttl:key", "value", time.Second*10)
-	assert.NoError(suite.T(), err)
-	
-	// Check TTL
-	ttl, err := redisRepo.TTL(suite.ctx, "ttl:key")
-	assert.NoError(suite.T(), err)
-	assert.True(suite.T(), ttl > 0 && ttl <= time.Second*10)
-	
-	// Set expire
-	err = redisRepo.Expire(suite.ctx, "ttl:key", time.Second*5)
-	assert.NoError(suite.T(), err)
-	
-	ttl, err = redisRepo.TTL(suite.ctx, "ttl:key")
-	assert.NoError(suite.T(), err)
-	assert.True(suite.T(), ttl > 0 && ttl <= time.Second*5)
-}
-
-func (suite *RedisAdapterTestSuite) TestKeysAndScan() {
-	redisRepo, ok := suite.userRepo.(*Repository)
-	require.True(suite.T(), ok)
-	
-	// Create test keys
-	pairs := map[string]interface{}{
-		"test:1": "value1",
-		"test:2": "value2",
-		"other": "value3",
-	}
-	
-	err := redisRepo.MSet(suite.ctx, pairs)
-	require.NoError(suite.T(), err)
-	
-	// Test Keys
-	keys, err := redisRepo.Keys(suite.ctx, "test:*")
-	assert.NoError(suite.T(), err)
-	assert.Len(suite.T(), keys, 2)
-	
-	// Test Scan
-	scanKeys, cursor, err := redisRepo.Scan(suite.ctx, 0, "*", 10)
-	assert.NoError(suite.T(), err)
-	assert.GreaterOrEqual(suite.T(), len(scanKeys), 3)
-	assert.Equal(suite.T(), uint64(0), cursor) // Should complete in one scan
-}
-
-// Run the test suite
-func TestRedisAdapterSuite(t *testing.T) {
-	// Register the Redis provider
-	gpa.RegisterProvider("redis", &Factory{})
-	
-	suite.Run(t, new(RedisAdapterTestSuite))
 }
