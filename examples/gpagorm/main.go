@@ -47,10 +47,10 @@ func main() {
 	fmt.Println("🔧 GORM Provider Example")
 	fmt.Println("Demonstrating GORM-specific features and SQL operations")
 
-	// Configure GORM with SQLite
+	// Configure GORM with SQLite in-memory database
 	config := gpa.Config{
 		Driver:   "sqlite",
-		Database: "gorm_example.db",
+		Database: ":memory:",
 		Options: map[string]interface{}{
 			"gorm": map[string]interface{}{
 				"log_level":      "info",

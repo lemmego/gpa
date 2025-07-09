@@ -4,50 +4,68 @@ This directory contains comprehensive examples demonstrating the capabilities of
 
 ## Examples Overview
 
-### 1. Basic Usage (`basic_usage.go`)
-Demonstrates fundamental CRUD operations and basic query patterns:
-- Creating single and batch entities
-- Finding entities by ID and with conditions
-- Updating entities (full and partial updates)
-- Deleting entities
-- Counting and existence checks
-- Basic transactions
-- Raw SQL queries
+### 1. GORM Provider (`gpagorm/`)
+Demonstrates SQL operations using GORM with SQLite:
+- Schema migration and table management
+- Basic CRUD operations with type safety
+- Complex SQL queries and joins
+- Relationship management and preloading
+- Raw SQL queries for advanced use cases
+- Transaction support with rollbacks
+- Index creation and performance optimization
 
-**Key Concepts:**
-- Type-safe repositories
-- Query options and conditions
-- Error handling
+**Key Features:**
+- Type-safe SQL operations
+- Automatic schema migration
+- Relationship mapping
+- Query optimization
+
+### 2. MongoDB Provider (`gpamongo/`)
+Shows document database operations with MongoDB:
+- Document creation with nested structures
+- MongoDB-specific queries and aggregations
+- Text search and geospatial queries
+- Index management for performance
+- Aggregation pipelines for analytics
+- Document updates with MongoDB operators
+- Transaction support in MongoDB
+
+**Key Features:**
+- Document-oriented operations
+- Aggregation framework
+- Geospatial queries
+- Full-text search
+
+### 3. Redis Provider (`gparedis/`)
+Demonstrates key-value operations with Redis:
+- Key-value storage with TTL support
+- Caching patterns and session management
+- Redis-specific data structures
+- Performance optimization techniques
+- Atomic operations and counters
+- Pattern matching and key operations
+
+**Key Features:**
+- High-performance key-value storage
+- TTL and expiration management
+- Atomic operations
+- Caching strategies
+
+### 4. Bun Provider (`gpabun/`)
+Explores advanced SQL operations with Bun:
+- Advanced query patterns and CTEs
+- Complex aggregations and analytics
+- Relationship queries and joins
+- Performance optimization
+- Raw SQL with type safety
 - Transaction management
+- Window functions and analytics
 
-### 2. Multi-Provider (`multi_provider.go`)
-Shows how to use different database providers for different use cases:
-- SQL operations with GORM (SQLite)
-- Document operations with MongoDB
-- Key-value operations with Redis
-- Provider feature comparison
-- Database-specific operations
-
-**Key Concepts:**
-- Provider abstraction
-- Database-specific interfaces
-- Feature detection
-- Multi-database architectures
-
-### 3. Advanced Queries (`advanced_queries.go`)
-Explores complex query patterns and relationships:
-- Complex WHERE conditions
-- Comparison and logical operators
-- Sorting, limiting, and pagination
-- Field selection and aggregation
-- Raw SQL for complex queries
-- Performance optimizations
-
-**Key Concepts:**
-- Query builders
-- Complex conditions
-- Aggregation patterns
-- Performance considerations
+**Key Features:**
+- Advanced SQL query building
+- High-performance queries
+- Complex aggregations
+- Analytics capabilities
 
 ## Running the Examples
 
@@ -55,7 +73,7 @@ Explores complex query patterns and relationships:
 
 1. **Go 1.18+**: The framework requires Go generics support
 2. **Database Dependencies** (optional, examples will skip unavailable databases):
-   - SQLite: Built-in support
+   - SQLite: Built-in support (used by GORM and Bun examples)
    - MongoDB: `brew install mongodb-community` or Docker
    - Redis: `brew install redis` or Docker
 
@@ -69,14 +87,13 @@ cd gpa
 # Install dependencies
 go mod tidy
 
-# Run basic usage example
-go run examples/basic_usage.go
+# Run SQL examples (work without external databases)
+go run ./examples/gpagorm    # GORM with SQLite (in-memory)
+go run ./examples/gpabun     # Bun with SQLite (temporary file)
 
-# Run multi-provider example (with optional databases)
-go run examples/multi_provider.go
-
-# Run advanced queries example
-go run examples/advanced_queries.go
+# Run database examples (require running databases)
+go run ./examples/gpamongo   # MongoDB example
+go run ./examples/gparedis   # Redis example
 ```
 
 ### Database Setup (Optional)
@@ -107,13 +124,14 @@ You can customize database connections using environment variables:
 
 ```bash
 # MongoDB
-export MONGODB_TEST_URL="mongodb://localhost:27017"
+export MONGODB_URL="mongodb://localhost:27017"
 
-# Redis
-export REDIS_TEST_URL="redis://localhost:6379"
+# Redis  
+export REDIS_URL="redis://localhost:6379"
 
 # Run examples with custom connections
-go run examples/multi_provider.go
+go run ./examples/gpamongo   # Uses MONGODB_URL if set
+go run ./examples/gparedis   # Uses REDIS_URL if set
 ```
 
 ## Example Code Patterns
@@ -180,7 +198,7 @@ err := repo.Transaction(ctx, func(tx gpa.Transaction[User]) error {
 ### 5. Database-Specific Operations
 
 ```go
-// SQL-specific operations
+// SQL-specific operations (GORM/Bun)
 if sqlRepo, ok := repo.(gpa.SQLRepository[User]); ok {
     users, err := sqlRepo.FindBySQL(ctx, "SELECT * FROM users WHERE age > ?", []interface{}{18})
 }
@@ -195,6 +213,29 @@ if kvRepo, ok := repo.(gpa.KeyValueRepository[CacheEntry]); ok {
     err := kvRepo.Set(ctx, "key", &entry)
 }
 ```
+
+## Example Features
+
+### SQL Examples (GORM & Bun)
+- **In-memory databases**: Fast execution without external dependencies
+- **Schema migration**: Automatic table creation and management
+- **Relationships**: Foreign keys and data preloading
+- **Complex queries**: JOINs, subqueries, and aggregations
+- **Raw SQL**: Direct SQL execution when needed
+- **Transactions**: ACID compliance with rollback support
+
+### Document Example (MongoDB)
+- **Nested documents**: Complex data structures
+- **Aggregation pipelines**: Data processing and analytics
+- **Geospatial queries**: Location-based searches
+- **Text search**: Full-text search capabilities
+- **Indexes**: Performance optimization
+
+### Key-Value Example (Redis)
+- **Caching patterns**: Session management and data caching
+- **TTL support**: Automatic expiration handling
+- **Atomic operations**: Counters and atomic updates
+- **Pattern matching**: Key discovery and management
 
 ## Key Features Demonstrated
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/lemmego/gpa"
@@ -64,10 +65,11 @@ func main() {
 	fmt.Println("🏗️  Bun Provider Example")
 	fmt.Println("Demonstrating Bun SQL toolkit features and advanced query patterns")
 
-	// Configure Bun with SQLite for simplicity
+	// Configure Bun with SQLite database file (shared between all repositories)
+	// Note: Using file-based DB instead of :memory: to share between multiple providers
 	config := gpa.Config{
 		Driver:   "sqlite",
-		Database: "bun_example.db",
+		Database: "/tmp/bun_example_shared.db",
 		Options: map[string]interface{}{
 			"bun": map[string]interface{}{
 				"debug":           true,
@@ -77,7 +79,11 @@ func main() {
 		},
 	}
 
-	// Create type-safe providers
+	// Clean up any existing database file
+	os.Remove("/tmp/bun_example_shared.db")
+	defer os.Remove("/tmp/bun_example_shared.db") // Clean up after example
+
+	// Create type-safe providers (they'll share the same database file)
 	userProvider, err := gpabun.NewTypeSafeProvider[User](config)
 	if err != nil {
 		log.Fatalf("Failed to create user provider: %v", err)
@@ -117,6 +123,7 @@ func main() {
 
 	// Create tables manually since Bun provider doesn't implement MigratableRepository yet
 	// In a production environment, you would use Bun's migration features
+	// Note: All providers share the same database connection in this example
 	bunDB := userProvider.(*gpabun.TypeSafeProvider[User]).Repository().(*gpabun.Repository[User])
 	
 	// Create users table
