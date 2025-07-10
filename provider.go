@@ -15,6 +15,7 @@ package gpa
 // • gparedis.Provider (Redis adapter)
 //
 // Usage:
+//
 //	provider, err := gpagorm.NewProvider(config)
 //	if err != nil {
 //	    log.Fatal(err)
@@ -36,7 +37,7 @@ type Provider interface {
 	Health() error
 
 	// Close shuts down the provider and releases all resources.
-	// Closes database connections, stops background tasks, etc.
+	// Closes database providers, stops background tasks, etc.
 	// Should be called during application shutdown.
 	Close() error
 
