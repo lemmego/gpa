@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/lemmego/gpa"
-	"github.com/lemmego/gpa/gpamongo"
+	"github.com/lemmego/gpamongo"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
@@ -28,17 +28,17 @@ type User struct {
 
 // UserProfile represents embedded profile data
 type UserProfile struct {
-	Bio      string   `bson:"bio" json:"bio"`
-	Website  string   `bson:"website" json:"website"`
-	Skills   []string `bson:"skills" json:"skills"`
-	Social   Social   `bson:"social" json:"social"`
+	Bio     string   `bson:"bio" json:"bio"`
+	Website string   `bson:"website" json:"website"`
+	Skills  []string `bson:"skills" json:"skills"`
+	Social  Social   `bson:"social" json:"social"`
 }
 
 // Social represents social media links
 type Social struct {
-	Twitter   string `bson:"twitter,omitempty" json:"twitter,omitempty"`
-	LinkedIn  string `bson:"linkedin,omitempty" json:"linkedin,omitempty"`
-	GitHub    string `bson:"github,omitempty" json:"github,omitempty"`
+	Twitter  string `bson:"twitter,omitempty" json:"twitter,omitempty"`
+	LinkedIn string `bson:"linkedin,omitempty" json:"linkedin,omitempty"`
+	GitHub   string `bson:"github,omitempty" json:"github,omitempty"`
 }
 
 // GeoLocation represents geographic coordinates
@@ -88,27 +88,21 @@ func main() {
 		},
 	}
 
-	// Create type-safe providers
-	userProvider, err := gpamongo.NewTypeSafeProvider[User](config)
+	// Create a single provider using the new unified API
+	provider, err := gpamongo.NewProvider(config)
 	if err != nil {
-		log.Fatalf("Failed to create user provider (ensure MongoDB is running): %v", err)
+		log.Fatalf("Failed to create provider (ensure MongoDB is running): %v", err)
 	}
-	defer userProvider.Close()
+	defer provider.Close()
 
-	postProvider, err := gpamongo.NewTypeSafeProvider[BlogPost](config)
-	if err != nil {
-		log.Fatalf("Failed to create post provider: %v", err)
-	}
-	defer postProvider.Close()
-
-	// Get repositories
-	userRepo := userProvider.Repository()
-	postRepo := postProvider.Repository()
+	// Create multiple repositories from the same provider using the new unified API
+	userRepo := gpamongo.GetRepository[User](provider)
+	postRepo := gpamongo.GetRepository[BlogPost](provider)
 
 	ctx := context.Background()
 
 	// Check provider health
-	err = userProvider.Health()
+	err = provider.Health()
 	if err != nil {
 		log.Fatalf("MongoDB health check failed: %v", err)
 	}
@@ -118,18 +112,18 @@ func main() {
 	// Cleanup any existing data from previous runs
 	// ============================================
 	fmt.Println("\n=== Cleanup Previous Data ===")
-	
+
 	// Clean up existing users and posts to avoid duplicate key errors
 	existingUsers, _ := userRepo.FindAll(ctx)
 	for _, user := range existingUsers {
 		userRepo.Delete(ctx, user.ID)
 	}
-	
+
 	existingPosts, _ := postRepo.FindAll(ctx)
 	for _, post := range existingPosts {
 		postRepo.Delete(ctx, post.ID)
 	}
-	
+
 	fmt.Printf("✓ Cleaned up %d existing users and %d existing posts\n", len(existingUsers), len(existingPosts))
 
 	// ============================================
@@ -146,9 +140,9 @@ func main() {
 			IsActive: true,
 			Tags:     []string{"developer", "golang", "mongodb"},
 			Profile: &UserProfile{
-				Bio:    "Full-stack developer passionate about Go and MongoDB",
+				Bio:     "Full-stack developer passionate about Go and MongoDB",
 				Website: "https://johndoe.dev",
-				Skills: []string{"Go", "MongoDB", "JavaScript", "Docker"},
+				Skills:  []string{"Go", "MongoDB", "JavaScript", "Docker"},
 				Social: Social{
 					Twitter:  "@johndoe",
 					LinkedIn: "linkedin.com/in/johndoe",
@@ -171,9 +165,9 @@ func main() {
 			IsActive: true,
 			Tags:     []string{"designer", "ui", "ux"},
 			Profile: &UserProfile{
-				Bio:    "UX/UI Designer creating beautiful and functional interfaces",
+				Bio:     "UX/UI Designer creating beautiful and functional interfaces",
 				Website: "https://janesmith.design",
-				Skills: []string{"Figma", "Adobe Creative Suite", "HTML", "CSS"},
+				Skills:  []string{"Figma", "Adobe Creative Suite", "HTML", "CSS"},
 				Social: Social{
 					Twitter:  "@janesmith",
 					LinkedIn: "linkedin.com/in/janesmith",
@@ -293,8 +287,8 @@ func main() {
 		// Text search (requires text index)
 		// First create a text index
 		textIndexKeys := map[string]interface{}{
-			"name":          "text",
-			"profile.bio":   "text",
+			"name":           "text",
+			"profile.bio":    "text",
 			"profile.skills": "text",
 		}
 		err = docRepo.CreateIndex(ctx, textIndexKeys, false)
@@ -325,7 +319,7 @@ func main() {
 		}
 
 		// Find users near San Francisco (within 100km)
-		nearSF, err := docRepo.FindNear(ctx, "location", 
+		nearSF, err := docRepo.FindNear(ctx, "location",
 			[]float64{-122.4194, 37.7749}, 100000) // 100km in meters
 		if err != nil {
 			log.Printf("Failed to find users near SF: %v", err)
@@ -349,8 +343,8 @@ func main() {
 			},
 			{
 				"$group": map[string]interface{}{
-					"_id": "$location.country",
-					"count": map[string]interface{}{"$sum": 1},
+					"_id":    "$location.country",
+					"count":  map[string]interface{}{"$sum": 1},
 					"avgAge": map[string]interface{}{"$avg": "$age"},
 					"cities": map[string]interface{}{"$addToSet": "$location.city"},
 				},
@@ -420,7 +414,7 @@ func main() {
 		postAnalyticsPipeline := []map[string]interface{}{
 			{
 				"$group": map[string]interface{}{
-					"_id": "$category",
+					"_id":        "$category",
 					"totalPosts": map[string]interface{}{"$sum": 1},
 					"publishedPosts": map[string]interface{}{
 						"$sum": map[string]interface{}{
@@ -431,7 +425,7 @@ func main() {
 					},
 					"totalViews": map[string]interface{}{"$sum": "$views"},
 					"totalLikes": map[string]interface{}{"$sum": "$likes"},
-					"avgViews": map[string]interface{}{"$avg": "$views"},
+					"avgViews":   map[string]interface{}{"$avg": "$views"},
 				},
 			},
 			{
@@ -467,7 +461,7 @@ func main() {
 		// Update using MongoDB update operators
 		updateResult, err := docRepo.UpdateDocument(ctx, users[0].ID, map[string]interface{}{
 			"$set": map[string]interface{}{
-				"age": 31,
+				"age":        31,
 				"updated_at": time.Now(),
 			},
 			"$addToSet": map[string]interface{}{
@@ -484,7 +478,7 @@ func main() {
 		manyUpdateResult, err := docRepo.UpdateManyDocuments(ctx,
 			map[string]interface{}{
 				"location.country": "USA",
-				"is_active": true,
+				"is_active":        true,
 			},
 			map[string]interface{}{
 				"$inc": map[string]interface{}{
@@ -533,7 +527,7 @@ func main() {
 		if err != nil {
 			log.Printf("Failed to get distinct countries: %v", err)
 		} else {
-			fmt.Printf("✓ Found users from %d distinct countries: %v\n", 
+			fmt.Printf("✓ Found users from %d distinct countries: %v\n",
 				len(distinctCountries), distinctCountries)
 		}
 
@@ -555,8 +549,8 @@ func main() {
 	if docRepo, ok := userRepo.(gpa.DocumentRepository[User]); ok {
 		// Create compound index
 		compoundIndexKeys := map[string]interface{}{
-			"is_active": 1,
-			"age":       -1,
+			"is_active":        1,
+			"age":              -1,
 			"location.country": 1,
 		}
 		err = docRepo.CreateIndex(ctx, compoundIndexKeys, false)
@@ -586,11 +580,11 @@ func main() {
 	err = userRepo.Transaction(ctx, func(tx gpa.Transaction[User]) error {
 		// Create a new user in transaction
 		newUser := &User{
-			Name:     "Transaction User",
-			Email:    "tx@example.com",
-			Age:      29,
-			IsActive: true,
-			Tags:     []string{"test"},
+			Name:      "Transaction User",
+			Email:     "tx@example.com",
+			Age:       29,
+			IsActive:  true,
+			Tags:      []string{"test"},
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
@@ -663,7 +657,7 @@ func main() {
 	}
 
 	fmt.Printf("\n✓ Provider information:\n")
-	providerInfo := userProvider.ProviderInfo()
+	providerInfo := provider.ProviderInfo()
 	fmt.Printf("  Name: %s\n", providerInfo.Name)
 	fmt.Printf("  Version: %s\n", providerInfo.Version)
 	fmt.Printf("  Database Type: %s\n", providerInfo.DatabaseType)

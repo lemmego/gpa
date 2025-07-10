@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/lemmego/gpa"
-	"github.com/lemmego/gpa/gpagorm"
+	"github.com/lemmego/gpagorm"
 )
 
 // User represents a user entity with GORM-specific tags
@@ -59,29 +59,17 @@ func main() {
 		},
 	}
 
-	// Create type-safe providers
-	userProvider, err := gpagorm.NewTypeSafeProvider[User](config)
+	// Create a single provider using the new unified API
+	provider, err := gpagorm.NewProvider(config)
 	if err != nil {
-		log.Fatalf("Failed to create user provider: %v", err)
+		log.Fatalf("Failed to create provider: %v", err)
 	}
-	defer userProvider.Close()
+	defer provider.Close()
 
-	profileProvider, err := gpagorm.NewTypeSafeProvider[Profile](config)
-	if err != nil {
-		log.Fatalf("Failed to create profile provider: %v", err)
-	}
-	defer profileProvider.Close()
-
-	postProvider, err := gpagorm.NewTypeSafeProvider[Post](config)
-	if err != nil {
-		log.Fatalf("Failed to create post provider: %v", err)
-	}
-	defer postProvider.Close()
-
-	// Get repositories
-	userRepo := userProvider.Repository()
-	profileRepo := profileProvider.Repository()
-	postRepo := postProvider.Repository()
+	// Create multiple repositories from the same provider using the new unified API
+	userRepo := gpagorm.GetRepository[User](provider)
+	profileRepo := gpagorm.GetRepository[Profile](provider)
+	postRepo := gpagorm.GetRepository[Post](provider)
 
 	ctx := context.Background()
 
@@ -89,7 +77,7 @@ func main() {
 	// Schema Migration
 	// ============================================
 	fmt.Println("\n=== Schema Migration ===")
-	
+
 	if migratableUserRepo, ok := userRepo.(gpa.MigratableRepository[User]); ok {
 		err = migratableUserRepo.MigrateTable(ctx)
 		if err != nil {
@@ -102,7 +90,7 @@ func main() {
 		if err != nil {
 			log.Printf("Failed to get migration status: %v", err)
 		} else {
-			fmt.Printf("✓ Migration status - Table exists: %t, Needs migration: %t\n", 
+			fmt.Printf("✓ Migration status - Table exists: %t, Needs migration: %t\n",
 				status.TableExists, status.NeedsMigration)
 		}
 
@@ -111,7 +99,7 @@ func main() {
 		if err != nil {
 			log.Printf("Failed to get table info: %v", err)
 		} else {
-			fmt.Printf("✓ Table info - Name: %s, Columns: %d\n", 
+			fmt.Printf("✓ Table info - Name: %s, Columns: %d\n",
 				tableInfo.Name, len(tableInfo.Columns))
 		}
 	}
@@ -131,7 +119,7 @@ func main() {
 	// Index Management
 	// ============================================
 	fmt.Println("\n=== Index Management ===")
-	
+
 	if sqlUserRepo, ok := userRepo.(gpa.SQLRepository[User]); ok {
 		// Create a composite index
 		err = sqlUserRepo.CreateIndex(ctx, []string{"age", "is_active"}, false)
@@ -207,8 +195,8 @@ func main() {
 
 	if sqlUserRepo, ok := userRepo.(gpa.SQLRepository[User]); ok {
 		// Raw SQL query
-		activeUsers, err := sqlUserRepo.FindBySQL(ctx, 
-			"SELECT * FROM users WHERE is_active = ? AND age > ? ORDER BY created_at DESC", 
+		activeUsers, err := sqlUserRepo.FindBySQL(ctx,
+			"SELECT * FROM users WHERE is_active = ? AND age > ? ORDER BY created_at DESC",
 			[]interface{}{true, 25})
 		if err != nil {
 			log.Printf("Failed to execute raw SQL: %v", err)
@@ -218,9 +206,9 @@ func main() {
 
 		// Complex join query
 		usersWithProfiles, err := sqlUserRepo.FindBySQL(ctx,
-			`SELECT u.* FROM users u 
-			 INNER JOIN profiles p ON u.id = p.user_id 
-			 WHERE u.is_active = ? 
+			`SELECT u.* FROM users u
+			 INNER JOIN profiles p ON u.id = p.user_id
+			 WHERE u.is_active = ?
 			 ORDER BY u.name`,
 			[]interface{}{true})
 		if err != nil {
@@ -230,8 +218,8 @@ func main() {
 		}
 
 		// Execute raw SQL command
-		result, err := sqlUserRepo.ExecSQL(ctx, 
-			"UPDATE users SET is_active = ? WHERE age > ?", 
+		result, err := sqlUserRepo.ExecSQL(ctx,
+			"UPDATE users SET is_active = ? WHERE age > ?",
 			false, 40)
 		if err != nil {
 			log.Printf("Failed to execute raw SQL command: %v", err)
@@ -248,8 +236,8 @@ func main() {
 
 	if sqlUserRepo, ok := userRepo.(gpa.SQLRepository[User]); ok {
 		// Find users with their profiles preloaded
-		usersWithRelations, err := sqlUserRepo.FindWithRelations(ctx, 
-			[]string{"Profile"}, 
+		usersWithRelations, err := sqlUserRepo.FindWithRelations(ctx,
+			[]string{"Profile"},
 			gpa.Where("is_active", gpa.OpEqual, true))
 		if err != nil {
 			log.Printf("Failed to find users with relations: %v", err)
@@ -409,10 +397,10 @@ func main() {
 	} else {
 		fmt.Printf("✓ Entity info - Name: %s, Table: %s, Fields: %d\n",
 			entityInfo.Name, entityInfo.TableName, len(entityInfo.Fields))
-		
+
 		// Show primary key fields
 		fmt.Printf("  Primary keys: %v\n", entityInfo.PrimaryKey)
-		
+
 		// Show first few fields
 		for i, field := range entityInfo.Fields[:3] {
 			fmt.Printf("  Field %d: %s (%s) - PK: %t, Nullable: %t\n",

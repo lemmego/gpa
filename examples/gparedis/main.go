@@ -8,18 +8,18 @@ import (
 	"time"
 
 	"github.com/lemmego/gpa"
-	"github.com/lemmego/gpa/gparedis"
+	"github.com/lemmego/gparedis"
 )
 
 // User represents a user entity for Redis storage
 type User struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	Email    string    `json:"email"`
-	Age      int       `json:"age"`
-	IsActive bool      `json:"is_active"`
-	Tags     []string  `json:"tags,omitempty"`
-	Metadata Metadata  `json:"metadata"`
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Email     string    `json:"email"`
+	Age       int       `json:"age"`
+	IsActive  bool      `json:"is_active"`
+	Tags      []string  `json:"tags,omitempty"`
+	Metadata  Metadata  `json:"metadata"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -61,12 +61,12 @@ func main() {
 	// Configure Redis connection
 	// Note: You can also configure Redis using individual settings:
 	config := gpa.Config{
-		Driver:        "redis",
-		Host:          "localhost",
-		Port:          6379,
-		Database:      "0", // Redis database number
-		MaxOpenConns:  10,
-		MaxIdleConns:  2,
+		Driver:       "redis",
+		Host:         "localhost",
+		Port:         6379,
+		Database:     "0", // Redis database number
+		MaxOpenConns: 10,
+		MaxIdleConns: 2,
 		Options: map[string]interface{}{
 			"redis": map[string]interface{}{
 				"max_retries":   3,
@@ -76,34 +76,22 @@ func main() {
 		},
 	}
 
-	// Create type-safe providers
-	userProvider, err := gparedis.NewTypeSafeProvider[User](config)
+	// Create a single provider using the new unified API
+	provider, err := gparedis.NewProvider(config)
 	if err != nil {
-		log.Fatalf("Failed to create user provider (ensure Redis is running): %v", err)
+		log.Fatalf("Failed to create provider (ensure Redis is running): %v", err)
 	}
-	defer userProvider.Close()
+	defer provider.Close()
 
-	cacheProvider, err := gparedis.NewTypeSafeProvider[CacheEntry](config)
-	if err != nil {
-		log.Fatalf("Failed to create cache provider: %v", err)
-	}
-	defer cacheProvider.Close()
-
-	sessionProvider, err := gparedis.NewTypeSafeProvider[SessionData](config)
-	if err != nil {
-		log.Fatalf("Failed to create session provider: %v", err)
-	}
-	defer sessionProvider.Close()
-
-	// Get repositories
-	userRepo := userProvider.Repository()
-	cacheRepo := cacheProvider.Repository()
-	sessionRepo := sessionProvider.Repository()
+	// Create multiple repositories from the same provider using the new unified API
+	userRepo := gparedis.GetRepository[User](provider)
+	cacheRepo := gparedis.GetRepository[CacheEntry](provider)
+	sessionRepo := gparedis.GetRepository[SessionData](provider)
 
 	ctx := context.Background()
 
 	// Check provider health
-	err = userProvider.Health()
+	err = provider.Health()
 	if err != nil {
 		log.Fatalf("Redis health check failed: %v", err)
 	}
@@ -170,10 +158,10 @@ func main() {
 				LoginCount:  45,
 				LastLoginIP: "192.168.1.102",
 				Preferences: map[string]interface{}{
-					"theme":        "auto",
-					"language":     "en",
-					"dashboard":    "compact",
-					"auto_logout":  3600,
+					"theme":       "auto",
+					"language":    "en",
+					"dashboard":   "compact",
+					"auto_logout": 3600,
 				},
 			},
 			CreatedAt: time.Now().Add(-72 * time.Hour),
@@ -196,7 +184,7 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to find user: %v", err)
 	} else {
-		fmt.Printf("✓ Retrieved user: %s (age %d, %d logins)\n", 
+		fmt.Printf("✓ Retrieved user: %s (age %d, %d logins)\n",
 			retrievedUser.Name, retrievedUser.Age, retrievedUser.Metadata.LoginCount)
 	}
 
@@ -208,15 +196,15 @@ func main() {
 	if kvRepo, ok := userRepo.(gpa.TTLKeyValueRepository[User]); ok {
 		// Set with TTL (expire in 1 hour)
 		tempUser := &User{
-			ID:   "user:temp",
-			Name: "Temporary User",
-			Email: "temp@example.com",
-			Age:  25,
-			IsActive: true,
+			ID:        "user:temp",
+			Name:      "Temporary User",
+			Email:     "temp@example.com",
+			Age:       25,
+			IsActive:  true,
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		}
-		
+
 		err = kvRepo.SetWithTTL(ctx, tempUser.ID, tempUser, time.Hour)
 		if err != nil {
 			log.Printf("Failed to set user with TTL: %v", err)
@@ -282,151 +270,151 @@ func main() {
 	// Note: Redis-specific operations would require a specialized interface
 	// For now, we'll demonstrate basic key-value operations
 	fmt.Println("✓ Redis-specific operations (HMSet, HGet, etc.) not implemented in this example")
-	
+
 	/*
-	if redisRepo, ok := userRepo.(gpa.RedisRepository[User]); ok {
-		// Hash operations
-		hashKey := "user:1:profile"
-		hashData := map[string]interface{}{
-			"bio":      "Software engineer passionate about Redis",
-			"website":  "https://johndoe.dev",
-			"location": "San Francisco",
-			"skills":   "Go,Redis,Microservices",
-		}
+		if redisRepo, ok := userRepo.(gpa.RedisRepository[User]); ok {
+			// Hash operations
+			hashKey := "user:1:profile"
+			hashData := map[string]interface{}{
+				"bio":      "Software engineer passionate about Redis",
+				"website":  "https://johndoe.dev",
+				"location": "San Francisco",
+				"skills":   "Go,Redis,Microservices",
+			}
 
-		err = redisRepo.HMSet(ctx, hashKey, hashData)
-		if err != nil {
-			log.Printf("Failed to set hash: %v", err)
-		} else {
-			fmt.Printf("✓ Set hash data for user profile\n")
-		}
-
-		// Get hash field
-		bio, err := redisRepo.HGet(ctx, hashKey, "bio")
-		if err != nil {
-			log.Printf("Failed to get hash field: %v", err)
-		} else {
-			fmt.Printf("✓ User bio: %s\n", bio)
-		}
-
-		// Get all hash fields
-		allFields, err := redisRepo.HGetAll(ctx, hashKey)
-		if err != nil {
-			log.Printf("Failed to get all hash fields: %v", err)
-		} else {
-			fmt.Printf("✓ Retrieved %d profile fields\n", len(allFields))
-		}
-
-		// Increment counters
-		loginCountKey := "user:1:login_count"
-		newCount, err := redisRepo.Incr(ctx, loginCountKey)
-		if err != nil {
-			log.Printf("Failed to increment counter: %v", err)
-		} else {
-			fmt.Printf("✓ Incremented login count to: %d\n", newCount)
-		}
-
-		// Increment by value
-		pageViewsKey := "user:1:page_views"
-		newViews, err := redisRepo.IncrBy(ctx, pageViewsKey, 5)
-		if err != nil {
-			log.Printf("Failed to increment by value: %v", err)
-		} else {
-			fmt.Printf("✓ Incremented page views by 5 to: %d\n", newViews)
-		}
-
-		// List operations
-		recentActionsKey := "user:1:recent_actions"
-		actions := []string{
-			"login",
-			"view_profile", 
-			"update_settings",
-			"logout",
-		}
-
-		for _, action := range actions {
-			err = redisRepo.LPush(ctx, recentActionsKey, action)
+			err = redisRepo.HMSet(ctx, hashKey, hashData)
 			if err != nil {
-				log.Printf("Failed to push to list: %v", err)
+				log.Printf("Failed to set hash: %v", err)
+			} else {
+				fmt.Printf("✓ Set hash data for user profile\n")
+			}
+
+			// Get hash field
+			bio, err := redisRepo.HGet(ctx, hashKey, "bio")
+			if err != nil {
+				log.Printf("Failed to get hash field: %v", err)
+			} else {
+				fmt.Printf("✓ User bio: %s\n", bio)
+			}
+
+			// Get all hash fields
+			allFields, err := redisRepo.HGetAll(ctx, hashKey)
+			if err != nil {
+				log.Printf("Failed to get all hash fields: %v", err)
+			} else {
+				fmt.Printf("✓ Retrieved %d profile fields\n", len(allFields))
+			}
+
+			// Increment counters
+			loginCountKey := "user:1:login_count"
+			newCount, err := redisRepo.Incr(ctx, loginCountKey)
+			if err != nil {
+				log.Printf("Failed to increment counter: %v", err)
+			} else {
+				fmt.Printf("✓ Incremented login count to: %d\n", newCount)
+			}
+
+			// Increment by value
+			pageViewsKey := "user:1:page_views"
+			newViews, err := redisRepo.IncrBy(ctx, pageViewsKey, 5)
+			if err != nil {
+				log.Printf("Failed to increment by value: %v", err)
+			} else {
+				fmt.Printf("✓ Incremented page views by 5 to: %d\n", newViews)
+			}
+
+			// List operations
+			recentActionsKey := "user:1:recent_actions"
+			actions := []string{
+				"login",
+				"view_profile",
+				"update_settings",
+				"logout",
+			}
+
+			for _, action := range actions {
+				err = redisRepo.LPush(ctx, recentActionsKey, action)
+				if err != nil {
+					log.Printf("Failed to push to list: %v", err)
+				}
+			}
+			fmt.Printf("✓ Added %d actions to recent actions list\n", len(actions))
+
+			// Get list length
+			listLen, err := redisRepo.LLen(ctx, recentActionsKey)
+			if err != nil {
+				log.Printf("Failed to get list length: %v", err)
+			} else {
+				fmt.Printf("✓ Recent actions list length: %d\n", listLen)
+			}
+
+			// Get list range
+			recentActions, err := redisRepo.LRange(ctx, recentActionsKey, 0, 2)
+			if err != nil {
+				log.Printf("Failed to get list range: %v", err)
+			} else {
+				fmt.Printf("✓ Last 3 actions: %v\n", recentActions)
+			}
+
+			// Set operations
+			skillsSetKey := "user:1:skills"
+			skills := []string{"Go", "Redis", "Docker", "Kubernetes", "MongoDB"}
+			for _, skill := range skills {
+				err = redisRepo.SAdd(ctx, skillsSetKey, skill)
+				if err != nil {
+					log.Printf("Failed to add to set: %v", err)
+				}
+			}
+			fmt.Printf("✓ Added %d skills to set\n", len(skills))
+
+			// Check set membership
+			hasGo, err := redisRepo.SIsMember(ctx, skillsSetKey, "Go")
+			if err != nil {
+				log.Printf("Failed to check set membership: %v", err)
+			} else {
+				fmt.Printf("✓ User has Go skill: %t\n", hasGo)
+			}
+
+			// Get all set members
+			allSkills, err := redisRepo.SMembers(ctx, skillsSetKey)
+			if err != nil {
+				log.Printf("Failed to get set members: %v", err)
+			} else {
+				fmt.Printf("✓ User skills: %v\n", allSkills)
+			}
+
+			// Sorted set operations (leaderboard example)
+			leaderboardKey := "leaderboard:developers"
+			developers := map[string]float64{
+				"user:1": 95.5,  // John Doe
+				"user:2": 87.2,  // Jane Smith
+				"user:3": 92.1,  // Bob Johnson
+			}
+
+			for userID, score := range developers {
+				err = redisRepo.ZAdd(ctx, leaderboardKey, score, userID)
+				if err != nil {
+					log.Printf("Failed to add to sorted set: %v", err)
+				}
+			}
+			fmt.Printf("✓ Added %d developers to leaderboard\n", len(developers))
+
+			// Get top performers
+			topPerformers, err := redisRepo.ZRevRange(ctx, leaderboardKey, 0, 2)
+			if err != nil {
+				log.Printf("Failed to get top performers: %v", err)
+			} else {
+				fmt.Printf("✓ Top 3 performers: %v\n", topPerformers)
+			}
+
+			// Get score
+			johnScore, err := redisRepo.ZScore(ctx, leaderboardKey, "user:1")
+			if err != nil {
+				log.Printf("Failed to get score: %v", err)
+			} else {
+				fmt.Printf("✓ John's score: %.1f\n", johnScore)
 			}
 		}
-		fmt.Printf("✓ Added %d actions to recent actions list\n", len(actions))
-
-		// Get list length
-		listLen, err := redisRepo.LLen(ctx, recentActionsKey)
-		if err != nil {
-			log.Printf("Failed to get list length: %v", err)
-		} else {
-			fmt.Printf("✓ Recent actions list length: %d\n", listLen)
-		}
-
-		// Get list range
-		recentActions, err := redisRepo.LRange(ctx, recentActionsKey, 0, 2)
-		if err != nil {
-			log.Printf("Failed to get list range: %v", err)
-		} else {
-			fmt.Printf("✓ Last 3 actions: %v\n", recentActions)
-		}
-
-		// Set operations
-		skillsSetKey := "user:1:skills"
-		skills := []string{"Go", "Redis", "Docker", "Kubernetes", "MongoDB"}
-		for _, skill := range skills {
-			err = redisRepo.SAdd(ctx, skillsSetKey, skill)
-			if err != nil {
-				log.Printf("Failed to add to set: %v", err)
-			}
-		}
-		fmt.Printf("✓ Added %d skills to set\n", len(skills))
-
-		// Check set membership
-		hasGo, err := redisRepo.SIsMember(ctx, skillsSetKey, "Go")
-		if err != nil {
-			log.Printf("Failed to check set membership: %v", err)
-		} else {
-			fmt.Printf("✓ User has Go skill: %t\n", hasGo)
-		}
-
-		// Get all set members
-		allSkills, err := redisRepo.SMembers(ctx, skillsSetKey)
-		if err != nil {
-			log.Printf("Failed to get set members: %v", err)
-		} else {
-			fmt.Printf("✓ User skills: %v\n", allSkills)
-		}
-
-		// Sorted set operations (leaderboard example)
-		leaderboardKey := "leaderboard:developers"
-		developers := map[string]float64{
-			"user:1": 95.5,  // John Doe
-			"user:2": 87.2,  // Jane Smith
-			"user:3": 92.1,  // Bob Johnson
-		}
-
-		for userID, score := range developers {
-			err = redisRepo.ZAdd(ctx, leaderboardKey, score, userID)
-			if err != nil {
-				log.Printf("Failed to add to sorted set: %v", err)
-			}
-		}
-		fmt.Printf("✓ Added %d developers to leaderboard\n", len(developers))
-
-		// Get top performers
-		topPerformers, err := redisRepo.ZRevRange(ctx, leaderboardKey, 0, 2)
-		if err != nil {
-			log.Printf("Failed to get top performers: %v", err)
-		} else {
-			fmt.Printf("✓ Top 3 performers: %v\n", topPerformers)
-		}
-
-		// Get score
-		johnScore, err := redisRepo.ZScore(ctx, leaderboardKey, "user:1")
-		if err != nil {
-			log.Printf("Failed to get score: %v", err)
-		} else {
-			fmt.Printf("✓ John's score: %.1f\n", johnScore)
-		}
-	}
 	*/
 
 	// ============================================
@@ -437,13 +425,13 @@ func main() {
 	// Cache expensive computations
 	cacheEntries := []*CacheEntry{
 		{
-			Key:   "computation:fibonacci:50",
-			Value: 12586269025,
-			TTL:   3600, // 1 hour
+			Key:       "computation:fibonacci:50",
+			Value:     12586269025,
+			TTL:       3600, // 1 hour
 			CreatedAt: time.Now(),
 		},
 		{
-			Key:   "api:weather:sf",
+			Key: "api:weather:sf",
 			Value: map[string]interface{}{
 				"temperature": 22,
 				"humidity":    65,
@@ -454,12 +442,12 @@ func main() {
 			CreatedAt: time.Now(),
 		},
 		{
-			Key:   "query:user_stats",
+			Key: "query:user_stats",
 			Value: map[string]interface{}{
-				"total_users":    1250,
-				"active_users":   987,
-				"new_today":      23,
-				"average_age":    32.5,
+				"total_users":  1250,
+				"active_users": 987,
+				"new_today":    23,
+				"average_age":  32.5,
 			},
 			TTL:       1800, // 30 minutes
 			CreatedAt: time.Now(),
@@ -482,7 +470,7 @@ func main() {
 			log.Printf("Failed to get cached weather: %v", err)
 		} else {
 			weatherValue := weatherData.Value.(map[string]interface{})
-			fmt.Printf("✓ Weather cache: %s, %v°C\n", 
+			fmt.Printf("✓ Weather cache: %s, %v°C\n",
 				weatherValue["conditions"], weatherValue["temperature"])
 		}
 	}
@@ -499,10 +487,10 @@ func main() {
 			Token:     "session_token_abc123",
 			ExpiresAt: time.Now().Add(24 * time.Hour),
 			Data: map[string]interface{}{
-				"login_time":   time.Now(),
-				"ip_address":   "192.168.1.100",
-				"user_agent":   "Mozilla/5.0 Chrome/96.0",
-				"permissions":  []string{"read", "write", "admin"},
+				"login_time":    time.Now(),
+				"ip_address":    "192.168.1.100",
+				"user_agent":    "Mozilla/5.0 Chrome/96.0",
+				"permissions":   []string{"read", "write", "admin"},
 				"last_activity": time.Now(),
 			},
 		},
@@ -511,10 +499,10 @@ func main() {
 			Token:     "session_token_def456",
 			ExpiresAt: time.Now().Add(8 * time.Hour),
 			Data: map[string]interface{}{
-				"login_time":   time.Now().Add(-2 * time.Hour),
-				"ip_address":   "192.168.1.101",
-				"user_agent":   "Safari/15.0",
-				"permissions":  []string{"read", "write"},
+				"login_time":    time.Now().Add(-2 * time.Hour),
+				"ip_address":    "192.168.1.101",
+				"user_agent":    "Safari/15.0",
+				"permissions":   []string{"read", "write"},
 				"last_activity": time.Now().Add(-30 * time.Minute),
 			},
 		},
@@ -524,12 +512,12 @@ func main() {
 		for _, session := range sessions {
 			sessionKey := fmt.Sprintf("session:%s", session.Token)
 			sessionTTL := time.Until(session.ExpiresAt)
-			
+
 			err = kvSessionRepo.SetWithTTL(ctx, sessionKey, session, sessionTTL)
 			if err != nil {
 				log.Printf("Failed to create session: %v", err)
 			} else {
-				fmt.Printf("✓ Created session for user %s (expires in %v)\n", 
+				fmt.Printf("✓ Created session for user %s (expires in %v)\n",
 					session.UserID, sessionTTL.Round(time.Hour))
 			}
 		}
@@ -550,24 +538,24 @@ func main() {
 		// Session cleanup (remove expired sessions)
 		// Note: Session cleanup would require pattern matching interface
 		fmt.Println("✓ Session cleanup not implemented in this example (would require pattern matching)")
-		
+
 		/*
-		if patternRepo, ok := sessionRepo.(gpa.PatternKeyValueRepository); ok {
-			allSessionKeys, err := patternRepo.Keys(ctx, "session:*")
-			if err != nil {
-				log.Printf("Failed to get session keys: %v", err)
-			} else {
-				expiredCount := 0
-				for _, key := range allSessionKeys {
-					ttl, err := kvSessionRepo.GetTTL(ctx, key)
-					if err == nil && ttl <= 0 {
-						kvSessionRepo.DeleteKey(ctx, key)
-						expiredCount++
+			if patternRepo, ok := sessionRepo.(gpa.PatternKeyValueRepository); ok {
+				allSessionKeys, err := patternRepo.Keys(ctx, "session:*")
+				if err != nil {
+					log.Printf("Failed to get session keys: %v", err)
+				} else {
+					expiredCount := 0
+					for _, key := range allSessionKeys {
+						ttl, err := kvSessionRepo.GetTTL(ctx, key)
+						if err == nil && ttl <= 0 {
+							kvSessionRepo.DeleteKey(ctx, key)
+							expiredCount++
+						}
 					}
+					fmt.Printf("✓ Cleaned up %d expired sessions\n", expiredCount)
 				}
-				fmt.Printf("✓ Cleaned up %d expired sessions\n", expiredCount)
 			}
-		}
 		*/
 	}
 
@@ -578,74 +566,74 @@ func main() {
 
 	// Note: Advanced Redis patterns would require Redis-specific interfaces
 	fmt.Println("✓ Advanced Redis patterns (rate limiting, distributed locking, etc.) not implemented in this example")
-	
+
 	/*
-	if redisRepo, ok := userRepo.(gpa.RedisRepository[User]); ok {
-		// Rate limiting
-		rateLimitKey := "rate_limit:user:1:api_calls"
-		
-		// Allow 10 API calls per minute
-		currentCalls, err := redisRepo.Incr(ctx, rateLimitKey)
-		if err != nil {
-			log.Printf("Failed to increment rate limit: %v", err)
-		} else {
-			if currentCalls == 1 {
-				// First call in this minute, set expiration
-				redisRepo.Expire(ctx, rateLimitKey, time.Minute)
-			}
-			
-			if currentCalls <= 10 {
-				fmt.Printf("✓ API call allowed (%d/10 this minute)\n", currentCalls)
-			} else {
-				fmt.Printf("✗ Rate limit exceeded (%d/10 this minute)\n", currentCalls)
-			}
-		}
+		if redisRepo, ok := userRepo.(gpa.RedisRepository[User]); ok {
+			// Rate limiting
+			rateLimitKey := "rate_limit:user:1:api_calls"
 
-		// Distributed locking
-		lockKey := "lock:user:1:update"
-		lockAcquired, err := redisRepo.SetNX(ctx, lockKey, "process_123", 30*time.Second)
-		if err != nil {
-			log.Printf("Failed to acquire lock: %v", err)
-		} else if lockAcquired {
-			fmt.Println("✓ Acquired distributed lock for user update")
-			
-			// Simulate work
-			time.Sleep(100 * time.Millisecond)
-			
-			// Release lock
-			err = redisRepo.Del(ctx, lockKey)
+			// Allow 10 API calls per minute
+			currentCalls, err := redisRepo.Incr(ctx, rateLimitKey)
 			if err != nil {
-				log.Printf("Failed to release lock: %v", err)
+				log.Printf("Failed to increment rate limit: %v", err)
 			} else {
-				fmt.Println("✓ Released distributed lock")
+				if currentCalls == 1 {
+					// First call in this minute, set expiration
+					redisRepo.Expire(ctx, rateLimitKey, time.Minute)
+				}
+
+				if currentCalls <= 10 {
+					fmt.Printf("✓ API call allowed (%d/10 this minute)\n", currentCalls)
+				} else {
+					fmt.Printf("✗ Rate limit exceeded (%d/10 this minute)\n", currentCalls)
+				}
 			}
-		} else {
-			fmt.Println("✗ Failed to acquire lock (already held)")
-		}
 
-		// Pub/Sub example (simplified)
-		notificationKey := "notifications:user:1"
-		notifications := []string{
-			"New message from Jane",
-			"Your post received 5 likes",
-			"Meeting reminder: 3 PM today",
-		}
-
-		for _, notification := range notifications {
-			err = redisRepo.LPush(ctx, notificationKey, notification)
+			// Distributed locking
+			lockKey := "lock:user:1:update"
+			lockAcquired, err := redisRepo.SetNX(ctx, lockKey, "process_123", 30*time.Second)
 			if err != nil {
-				log.Printf("Failed to add notification: %v", err)
+				log.Printf("Failed to acquire lock: %v", err)
+			} else if lockAcquired {
+				fmt.Println("✓ Acquired distributed lock for user update")
+
+				// Simulate work
+				time.Sleep(100 * time.Millisecond)
+
+				// Release lock
+				err = redisRepo.Del(ctx, lockKey)
+				if err != nil {
+					log.Printf("Failed to release lock: %v", err)
+				} else {
+					fmt.Println("✓ Released distributed lock")
+				}
+			} else {
+				fmt.Println("✗ Failed to acquire lock (already held)")
+			}
+
+			// Pub/Sub example (simplified)
+			notificationKey := "notifications:user:1"
+			notifications := []string{
+				"New message from Jane",
+				"Your post received 5 likes",
+				"Meeting reminder: 3 PM today",
+			}
+
+			for _, notification := range notifications {
+				err = redisRepo.LPush(ctx, notificationKey, notification)
+				if err != nil {
+					log.Printf("Failed to add notification: %v", err)
+				}
+			}
+
+			// Trim to keep only last 10 notifications
+			err = redisRepo.LTrim(ctx, notificationKey, 0, 9)
+			if err != nil {
+				log.Printf("Failed to trim notifications: %v", err)
+			} else {
+				fmt.Printf("✓ Added %d notifications (keeping last 10)\n", len(notifications))
 			}
 		}
-		
-		// Trim to keep only last 10 notifications
-		err = redisRepo.LTrim(ctx, notificationKey, 0, 9)
-		if err != nil {
-			log.Printf("Failed to trim notifications: %v", err)
-		} else {
-			fmt.Printf("✓ Added %d notifications (keeping last 10)\n", len(notifications))
-		}
-	}
 	*/
 
 	// ============================================
@@ -675,7 +663,7 @@ func main() {
 	if kvRepo, ok := userRepo.(gpa.TTLKeyValueRepository[User]); ok {
 		tempKeys := []string{
 			"user:temp",
-			"user:1:login_count", 
+			"user:1:login_count",
 			"user:1:page_views",
 			"rate_limit:user:1:api_calls",
 		}
@@ -694,7 +682,7 @@ func main() {
 	// ============================================
 	fmt.Println("\n=== Provider Information ===")
 
-	providerInfo := userProvider.ProviderInfo()
+	providerInfo := provider.ProviderInfo()
 	fmt.Printf("✓ Provider information:\n")
 	fmt.Printf("  Name: %s\n", providerInfo.Name)
 	fmt.Printf("  Version: %s\n", providerInfo.Version)

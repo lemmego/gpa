@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/lemmego/gpa"
-	"github.com/lemmego/gpa/gpabun"
+	"github.com/lemmego/gpabun"
 )
 
 // User represents a user entity with Bun-specific tags
@@ -83,36 +83,18 @@ func main() {
 	os.Remove("/tmp/bun_example_shared.db")
 	defer os.Remove("/tmp/bun_example_shared.db") // Clean up after example
 
-	// Create type-safe providers (they'll share the same database file)
-	userProvider, err := gpabun.NewTypeSafeProvider[User](config)
+	// Create a single provider using the new unified API
+	provider, err := gpabun.NewProvider(config)
 	if err != nil {
-		log.Fatalf("Failed to create user provider: %v", err)
+		log.Fatalf("Failed to create provider: %v", err)
 	}
-	defer userProvider.Close()
+	defer provider.Close()
 
-	profileProvider, err := gpabun.NewTypeSafeProvider[Profile](config)
-	if err != nil {
-		log.Fatalf("Failed to create profile provider: %v", err)
-	}
-	defer profileProvider.Close()
-
-	postProvider, err := gpabun.NewTypeSafeProvider[Post](config)
-	if err != nil {
-		log.Fatalf("Failed to create post provider: %v", err)
-	}
-	defer postProvider.Close()
-
-	commentProvider, err := gpabun.NewTypeSafeProvider[Comment](config)
-	if err != nil {
-		log.Fatalf("Failed to create comment provider: %v", err)
-	}
-	defer commentProvider.Close()
-
-	// Get repositories
-	userRepo := userProvider.Repository()
-	profileRepo := profileProvider.Repository()
-	postRepo := postProvider.Repository()
-	commentRepo := commentProvider.Repository()
+	// Create multiple repositories from the same provider using the new unified API
+	userRepo := gpabun.GetRepository[User](provider)
+	profileRepo := gpabun.GetRepository[Profile](provider)
+	postRepo := gpabun.GetRepository[Post](provider)
+	commentRepo := gpabun.GetRepository[Comment](provider)
 
 	ctx := context.Background()
 
@@ -123,9 +105,9 @@ func main() {
 
 	// Create tables manually since Bun provider doesn't implement MigratableRepository yet
 	// In a production environment, you would use Bun's migration features
-	// Note: All providers share the same database connection in this example
-	bunDB := userProvider.(*gpabun.TypeSafeProvider[User]).Repository().(*gpabun.Repository[User])
-	
+	// Note: All repositories share the same database connection in this example
+	bunDB := userRepo.(*gpabun.Repository[User])
+
 	// Create users table
 	_, err = bunDB.RawExec(ctx, `
 		CREATE TABLE IF NOT EXISTS users (
@@ -248,7 +230,7 @@ func main() {
 		},
 		{
 			Name:     "Bob Smith",
-			Email:    "bob@example.com", 
+			Email:    "bob@example.com",
 			Age:      32,
 			IsActive: true,
 			Salary:   &salary2,
@@ -397,7 +379,7 @@ func main() {
 	if sqlUserRepo, ok := userRepo.(gpa.SQLRepository[User]); ok {
 		// Complex raw SQL with joins
 		userStats, err := sqlUserRepo.FindBySQL(ctx, `
-			SELECT 
+			SELECT
 				u.id,
 				u.name,
 				u.email,
@@ -413,7 +395,7 @@ func main() {
 			HAVING COUNT(p.id) > 0
 			ORDER BY avg_views DESC
 		`, []interface{}{true, true})
-		
+
 		if err != nil {
 			log.Printf("Failed to execute user stats query: %v", err)
 		} else {
@@ -424,15 +406,15 @@ func main() {
 		topPosters, err := sqlUserRepo.FindBySQL(ctx, `
 			SELECT u.* FROM users u
 			WHERE u.id IN (
-				SELECT p.user_id 
-				FROM posts p 
-				WHERE p.published = ? 
-				GROUP BY p.user_id 
+				SELECT p.user_id
+				FROM posts p
+				WHERE p.published = ?
+				GROUP BY p.user_id
 				HAVING COUNT(*) >= ?
 			)
 			ORDER BY u.name
 		`, []interface{}{true, 2})
-		
+
 		if err != nil {
 			log.Printf("Failed to execute subquery: %v", err)
 		} else {
@@ -441,17 +423,17 @@ func main() {
 
 		// Window function example (SQLite 3.25+)
 		rankedUsers, err := sqlUserRepo.FindBySQL(ctx, `
-			SELECT 
+			SELECT
 				name,
 				age,
 				salary,
 				ROW_NUMBER() OVER (ORDER BY age DESC) as age_rank,
 				RANK() OVER (ORDER BY COALESCE(salary, 0) DESC) as salary_rank
-			FROM users 
+			FROM users
 			WHERE is_active = ?
 			ORDER BY age_rank
 		`, []interface{}{true})
-		
+
 		if err != nil {
 			log.Printf("Window functions might not be supported: %v", err)
 		} else {
@@ -466,10 +448,10 @@ func main() {
 
 	if sqlUserRepo, ok := userRepo.(gpa.SQLRepository[User]); ok {
 		// Find users with their profiles
-		usersWithProfiles, err := sqlUserRepo.FindWithRelations(ctx, 
-			[]string{"Profile"}, 
+		usersWithProfiles, err := sqlUserRepo.FindWithRelations(ctx,
+			[]string{"Profile"},
 			gpa.Where("is_active", gpa.OpEqual, true))
-		
+
 		if err != nil {
 			log.Printf("Failed to find users with profiles: %v", err)
 		} else {
@@ -482,10 +464,10 @@ func main() {
 		}
 
 		// Find users with multiple relations
-		usersWithAll, err := sqlUserRepo.FindWithRelations(ctx, 
-			[]string{"Profile", "Posts"}, 
+		usersWithAll, err := sqlUserRepo.FindWithRelations(ctx,
+			[]string{"Profile", "Posts"},
 			gpa.Where("is_active", gpa.OpEqual, true))
-		
+
 		if err != nil {
 			log.Printf("Failed to find users with all relations: %v", err)
 		} else {
@@ -504,25 +486,25 @@ func main() {
 	if sqlPostRepo, ok := postRepo.(gpa.SQLRepository[Post]); ok {
 		// Post analytics with aggregation
 		postAnalytics, err := sqlPostRepo.FindBySQL(ctx, `
-			SELECT 
+			SELECT
 				'total' as metric,
 				COUNT(*) as count,
 				0 as avg_value
 			FROM posts
 			UNION ALL
-			SELECT 
+			SELECT
 				'published' as metric,
 				COUNT(*) as count,
 				0 as avg_value
 			FROM posts WHERE published = ?
 			UNION ALL
-			SELECT 
+			SELECT
 				'avg_views' as metric,
 				0 as count,
 				AVG(views) as avg_value
 			FROM posts WHERE published = ?
 		`, []interface{}{true, true})
-		
+
 		if err != nil {
 			log.Printf("Failed to get post analytics: %v", err)
 		} else {
@@ -533,27 +515,27 @@ func main() {
 
 		// Tag analysis
 		tagStats, err := sqlPostRepo.FindBySQL(ctx, `
-			SELECT 
+			SELECT
 				TRIM(tag_part) as tag,
 				COUNT(*) as usage_count
 			FROM (
-				SELECT 
-					CASE 
+				SELECT
+					CASE
 						WHEN INSTR(tags, ',') > 0 THEN
 							SUBSTR(tags, 1, INSTR(tags, ',') - 1)
 						ELSE tags
 					END as tag_part
-				FROM posts 
+				FROM posts
 				WHERE tags IS NOT NULL AND tags != ''
 				UNION ALL
-				SELECT 
-					CASE 
+				SELECT
+					CASE
 						WHEN INSTR(SUBSTR(tags, INSTR(tags, ',') + 1), ',') > 0 THEN
-							SUBSTR(SUBSTR(tags, INSTR(tags, ',') + 1), 1, 
+							SUBSTR(SUBSTR(tags, INSTR(tags, ',') + 1), 1,
 								INSTR(SUBSTR(tags, INSTR(tags, ',') + 1), ',') - 1)
 						ELSE SUBSTR(tags, INSTR(tags, ',') + 1)
 					END as tag_part
-				FROM posts 
+				FROM posts
 				WHERE tags IS NOT NULL AND INSTR(tags, ',') > 0
 			) tag_split
 			WHERE tag_part IS NOT NULL AND tag_part != ''
@@ -561,7 +543,7 @@ func main() {
 			ORDER BY usage_count DESC
 			LIMIT 5
 		`, []interface{}{})
-		
+
 		if err != nil {
 			log.Printf("Failed to analyze tags: %v", err)
 		} else {
@@ -582,7 +564,7 @@ func main() {
 		gpa.OrderBy("salary", gpa.OrderDesc),
 		gpa.Limit(3),
 	)
-	
+
 	if err != nil {
 		log.Printf("Failed to execute complex query: %v", err)
 	} else {
@@ -602,7 +584,7 @@ func main() {
 		gpa.WhereIn("age", []interface{}{28, 30, 32}),
 		gpa.OrderBy("name", gpa.OrderAsc),
 	)
-	
+
 	if err != nil {
 		log.Printf("Failed to execute pattern query: %v", err)
 	} else {
@@ -623,14 +605,14 @@ func main() {
 			Age:      29,
 			IsActive: true,
 		}
-		
+
 		if err := tx.Create(ctx, newUser); err != nil {
 			return err
 		}
 
 		// Update another user's age
 		if err := tx.UpdatePartial(ctx, users[0].ID, map[string]interface{}{
-			"age": users[0].Age + 1,
+			"age":        users[0].Age + 1,
 			"updated_at": time.Now(),
 		}); err != nil {
 			return err
@@ -649,7 +631,7 @@ func main() {
 		fmt.Println("✓ Transaction operations completed")
 		return nil
 	})
-	
+
 	if err != nil {
 		log.Printf("Transaction failed: %v", err)
 	} else {
@@ -664,7 +646,7 @@ func main() {
 			Age:      25,
 			IsActive: true,
 		}
-		
+
 		if err := tx.Create(ctx, tempUser); err != nil {
 			return err
 		}
@@ -672,7 +654,7 @@ func main() {
 		// Simulate an error condition
 		return fmt.Errorf("simulated error for rollback demonstration")
 	})
-	
+
 	if err != nil {
 		fmt.Println("✓ Transaction rolled back as expected")
 	}
@@ -688,11 +670,11 @@ func main() {
 		{Name: "Batch User 2", Email: "batch2@example.com", Age: 26, IsActive: true},
 		{Name: "Batch User 3", Email: "batch3@example.com", Age: 28, IsActive: true},
 	}
-	
+
 	start := time.Now()
 	err = userRepo.CreateBatch(ctx, newUsers)
 	batchDuration := time.Since(start)
-	
+
 	if err != nil {
 		log.Printf("Failed to create batch: %v", err)
 	} else {
@@ -700,10 +682,10 @@ func main() {
 	}
 
 	// Existence checks (more efficient than counting)
-	hasYoungUsers, err := userRepo.Exists(ctx, 
+	hasYoungUsers, err := userRepo.Exists(ctx,
 		gpa.Where("age", gpa.OpLessThan, 30),
 		gpa.Where("is_active", gpa.OpEqual, true))
-	
+
 	if err != nil {
 		log.Printf("Failed to check existence: %v", err)
 	} else {
@@ -712,10 +694,10 @@ func main() {
 
 	// Count with conditions
 	activeUserCount, err := userRepo.Count(ctx, gpa.Where("is_active", gpa.OpEqual, true))
-	highEarnerCount, err2 := userRepo.Count(ctx, 
+	highEarnerCount, err2 := userRepo.Count(ctx,
 		gpa.Where("salary", gpa.OpGreaterThan, 80000),
 		gpa.WhereNotNull("salary"))
-	
+
 	if err != nil || err2 != nil {
 		log.Printf("Failed to count users: %v, %v", err, err2)
 	} else {
@@ -737,7 +719,7 @@ func main() {
 		fmt.Printf("  Table: %s\n", userEntityInfo.TableName)
 		fmt.Printf("  Fields: %d\n", len(userEntityInfo.Fields))
 		fmt.Printf("  Primary Keys: %v\n", userEntityInfo.PrimaryKey)
-		
+
 		// Show a few field details (if any fields are available)
 		if len(userEntityInfo.Fields) > 0 {
 			limit := len(userEntityInfo.Fields)
@@ -775,7 +757,7 @@ func main() {
 
 	// Provider information
 	fmt.Printf("\n✓ Provider information:\n")
-	providerInfo := userProvider.ProviderInfo()
+	providerInfo := provider.ProviderInfo()
 	fmt.Printf("  Name: %s\n", providerInfo.Name)
 	fmt.Printf("  Version: %s\n", providerInfo.Version)
 	fmt.Printf("  Database Type: %s\n", providerInfo.DatabaseType)
