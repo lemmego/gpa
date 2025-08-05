@@ -114,7 +114,7 @@ type Repository[T any] interface {
 	// ===============================
 
 	// GetEntityInfo returns metadata about the entity type T.
-	// Includes field information, primary keys, indexes, and relationships.
+	// Includes field information, primary keys, indexes, and rel.
 	// Useful for reflection, validation, and building dynamic UIs.
 	// Example: info, err := GetEntityInfo()
 	GetEntityInfo() (*EntityInfo, error)

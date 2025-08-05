@@ -108,7 +108,7 @@ type GraphRepository[T any] interface {
 	Repository[T]
 
 	// FindConnected finds entities connected to the given entity.
-	// Follows relationships based on the specified relationship type and direction.
+	// Follows rel based on the specified relationship type and direction.
 	// Returns connected entities with compile-time type safety.
 	// Example: friends, err := FindConnected(ctx, userID, "FRIEND", "outgoing", 1)
 	FindConnected(ctx context.Context, entityID interface{}, relationshipType string, direction string, depth int) ([]*T, error)
