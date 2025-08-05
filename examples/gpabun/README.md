@@ -145,21 +145,21 @@ err := repo.Delete(ctx, 1)
 ```go
 if sqlRepo, ok := repo.(gpa.SQLRepository[User]); ok {
     // Raw SQL queries
-    users, err := sqlRepo.FindBySQL(ctx, 
-        `SELECT u.*, p.bio FROM users u 
-         LEFT JOIN profiles p ON u.id = p.user_id 
-         WHERE u.age > ? AND u.is_active = ?`, 
+    users, err := sqlRepo.FindBySQL(ctx,
+        `SELECT u.*, p.bio FROM users u
+         LEFT JOIN profiles p ON u.id = p.user_id
+         WHERE u.age > ? AND u.is_active = ?`,
         []interface{}{25, true})
-    
+
     // Execute raw SQL commands
-    result, err := sqlRepo.ExecSQL(ctx, 
-        "UPDATE users SET updated_at = ? WHERE id = ?", 
+    result, err := sqlRepo.ExecSQL(ctx,
+        "UPDATE users SET updated_at = ? WHERE id = ?",
         time.Now(), userID)
-    
+
     // Create indexes
     err := sqlRepo.CreateIndex(ctx, []string{"email"}, true)
-    
-    // Load relationships
+
+    // Load rel
     users, err := sqlRepo.FindWithRelations(ctx, []string{"Profile", "Posts"})
 }
 ```
@@ -169,10 +169,10 @@ if sqlRepo, ok := repo.(gpa.SQLRepository[User]); ok {
 if migratableRepo, ok := repo.(gpa.MigratableRepository[User]); ok {
     // Auto-migrate schema
     err := migratableRepo.MigrateTable(ctx)
-    
+
     // Get migration status
     status, err := migratableRepo.GetMigrationStatus(ctx)
-    
+
     // Get table information
     tableInfo, err := migratableRepo.GetTableInfo(ctx)
 }
@@ -251,10 +251,10 @@ err := repo.Transaction(ctx, func(tx gpa.Transaction[User]) error {
 topPosters, err := sqlRepo.FindBySQL(ctx, `
     SELECT u.* FROM users u
     WHERE u.id IN (
-        SELECT p.user_id 
-        FROM posts p 
-        WHERE p.published = ? 
-        GROUP BY p.user_id 
+        SELECT p.user_id
+        FROM posts p
+        WHERE p.published = ?
+        GROUP BY p.user_id
         HAVING COUNT(*) >= ?
     )
     ORDER BY u.name
@@ -265,13 +265,13 @@ topPosters, err := sqlRepo.FindBySQL(ctx, `
 ```go
 // Ranking with window functions
 rankedUsers, err := sqlRepo.FindBySQL(ctx, `
-    SELECT 
+    SELECT
         name,
         age,
         salary,
         ROW_NUMBER() OVER (ORDER BY age DESC) as age_rank,
         RANK() OVER (ORDER BY COALESCE(salary, 0) DESC) as salary_rank
-    FROM users 
+    FROM users
     WHERE is_active = ?
     ORDER BY age_rank
 `, []interface{}{true})
@@ -281,7 +281,7 @@ rankedUsers, err := sqlRepo.FindBySQL(ctx, `
 ```go
 // Complex aggregation
 stats, err := sqlRepo.FindBySQL(ctx, `
-    SELECT 
+    SELECT
         COUNT(*) as total_users,
         COUNT(CASE WHEN is_active THEN 1 END) as active_users,
         AVG(age) as avg_age,
@@ -293,8 +293,8 @@ stats, err := sqlRepo.FindBySQL(ctx, `
 ### Relationship Loading
 ```go
 // Load users with profiles and posts
-users, err := sqlRepo.FindWithRelations(ctx, 
-    []string{"Profile", "Posts"}, 
+users, err := sqlRepo.FindWithRelations(ctx,
+    []string{"Profile", "Posts"},
     gpa.Where("is_active", gpa.OpEqual, true))
 
 // Access related data
@@ -348,7 +348,7 @@ func (s *UserService) CreateUserWithProfile(ctx context.Context, user *User, pro
         if err := tx.Create(ctx, user); err != nil {
             return err
         }
-        
+
         profile.UserID = user.ID
         return s.profileRepo.Create(ctx, profile)
     })
@@ -359,21 +359,21 @@ func (s *UserService) CreateUserWithProfile(ctx context.Context, user *User, pro
 ```go
 func (s *UserService) SearchUsers(ctx context.Context, filters UserFilters) ([]*User, error) {
     conditions := []gpa.QueryOption{}
-    
+
     if filters.MinAge > 0 {
         conditions = append(conditions, gpa.Where("age", gpa.OpGreaterThanOrEqual, filters.MinAge))
     }
-    
+
     if filters.IsActive != nil {
         conditions = append(conditions, gpa.Where("is_active", gpa.OpEqual, *filters.IsActive))
     }
-    
+
     if filters.Name != "" {
         conditions = append(conditions, gpa.WhereLike("name", filters.Name+"%"))
     }
-    
+
     conditions = append(conditions, gpa.OrderBy("name", gpa.OrderAsc))
-    
+
     return s.repo.Query(ctx, conditions...)
 }
 ```

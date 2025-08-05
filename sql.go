@@ -8,7 +8,7 @@ import "context"
 
 // SQLRepository extends Repository with SQL-specific operations.
 // Provides additional functionality for SQL databases including raw SQL,
-// relationships, and schema management.
+// rel, and schema management.
 type SQLRepository[T any] interface {
 	Repository[T]
 
@@ -24,17 +24,17 @@ type SQLRepository[T any] interface {
 
 	// FindWithRelations retrieves entities with their related entities preloaded.
 	// Returns a slice of entity pointers with compile-time type safety.
-	// The relations slice specifies which relationships to load.
+	// The relations slice specifies which rel to load.
 	// Example: users, err := FindWithRelations(ctx, []string{"Posts", "Profile"}, Where("active", "=", true))
 	FindWithRelations(ctx context.Context, relations []string, opts ...QueryOption) ([]*T, error)
 
-	// FindByIDWithRelations retrieves a single entity by ID with relationships preloaded.
+	// FindByIDWithRelations retrieves a single entity by ID with rel preloaded.
 	// Returns the entity directly with compile-time type safety.
 	// Example: user, err := FindByIDWithRelations(ctx, userID, []string{"Posts", "Comments"})
 	FindByIDWithRelations(ctx context.Context, id interface{}, relations []string) (*T, error)
 
 	// CreateTable creates a new table based on the entity structure.
-	// Analyzes the entity type T's fields, tags, and relationships to generate appropriate SQL.
+	// Analyzes the entity type T's fields, tags, and rel to generate appropriate SQL.
 	// May create foreign key constraints, indexes, and other database objects.
 	// Example: err := CreateTable(ctx)
 	CreateTable(ctx context.Context) error

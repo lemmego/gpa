@@ -141,7 +141,7 @@ func (qb *QueryBuilder[T]) Lock(lockType LockType) *QueryBuilder[T] {
 	return qb
 }
 
-// Preload specifies relationships to eagerly load.
+// Preload specifies rel to eagerly load.
 // Returns the same QueryBuilder instance for method chaining.
 // Example: qb.Preload("Orders", "Profile")
 func (qb *QueryBuilder[T]) Preload(relations ...string) *QueryBuilder[T] {
@@ -174,65 +174,65 @@ func (qb *QueryBuilder[T]) Build() *Query {
 // Example: users, err := qb.Execute(ctx, repo)
 func (qb *QueryBuilder[T]) Execute(ctx context.Context, repo Repository[T]) ([]*T, error) {
 	query := qb.Build()
-	
+
 	// Convert Query to QueryOptions
 	var options []QueryOption
-	
+
 	// Add conditions
 	for _, condition := range query.Conditions {
 		options = append(options, ConditionOption{Condition: condition})
 	}
-	
+
 	// Add orders
 	for _, order := range query.Orders {
 		options = append(options, OrderOption{Order: order})
 	}
-	
+
 	// Add limit
 	if query.Limit != nil {
 		options = append(options, LimitOption{Count: *query.Limit})
 	}
-	
+
 	// Add offset
 	if query.Offset != nil {
 		options = append(options, OffsetOption{Count: *query.Offset})
 	}
-	
+
 	// Add fields
 	if len(query.Fields) > 0 {
 		options = append(options, FieldsOption{Fields: query.Fields})
 	}
-	
+
 	// Add joins
 	for _, join := range query.Joins {
 		options = append(options, JoinOption{Join: join})
 	}
-	
+
 	// Add group by
 	if len(query.Groups) > 0 {
 		options = append(options, GroupByOption{Fields: query.Groups})
 	}
-	
+
 	// Add having
 	for _, having := range query.Having {
 		options = append(options, HavingOption{Condition: having})
 	}
-	
+
 	// Add distinct
 	if query.Distinct {
 		options = append(options, DistinctOption{})
 	}
-	
+
 	// Add lock
 	if query.Lock != LockNone {
 		options = append(options, LockOption{Type: query.Lock})
 	}
-	
+
 	// Add preloads
 	if len(query.Preloads) > 0 {
 		options = append(options, PreloadOption{Relations: query.Preloads})
 	}
-	
+
 	return repo.Query(ctx, options...)
 }
 
@@ -242,63 +242,63 @@ func (qb *QueryBuilder[T]) Execute(ctx context.Context, repo Repository[T]) ([]*
 // Example: user, err := qb.ExecuteOne(ctx, repo)
 func (qb *QueryBuilder[T]) ExecuteOne(ctx context.Context, repo Repository[T]) (*T, error) {
 	query := qb.Build()
-	
+
 	// Convert Query to QueryOptions (same as Execute)
 	var options []QueryOption
-	
+
 	// Add conditions
 	for _, condition := range query.Conditions {
 		options = append(options, ConditionOption{Condition: condition})
 	}
-	
+
 	// Add orders
 	for _, order := range query.Orders {
 		options = append(options, OrderOption{Order: order})
 	}
-	
+
 	// Add limit (force to 1 for single result)
 	options = append(options, LimitOption{Count: 1})
-	
+
 	// Add offset
 	if query.Offset != nil {
 		options = append(options, OffsetOption{Count: *query.Offset})
 	}
-	
+
 	// Add fields
 	if len(query.Fields) > 0 {
 		options = append(options, FieldsOption{Fields: query.Fields})
 	}
-	
+
 	// Add joins
 	for _, join := range query.Joins {
 		options = append(options, JoinOption{Join: join})
 	}
-	
+
 	// Add group by
 	if len(query.Groups) > 0 {
 		options = append(options, GroupByOption{Fields: query.Groups})
 	}
-	
+
 	// Add having
 	for _, having := range query.Having {
 		options = append(options, HavingOption{Condition: having})
 	}
-	
+
 	// Add distinct
 	if query.Distinct {
 		options = append(options, DistinctOption{})
 	}
-	
+
 	// Add lock
 	if query.Lock != LockNone {
 		options = append(options, LockOption{Type: query.Lock})
 	}
-	
+
 	// Add preloads
 	if len(query.Preloads) > 0 {
 		options = append(options, PreloadOption{Relations: query.Preloads})
 	}
-	
+
 	return repo.QueryOne(ctx, options...)
 }
 
@@ -307,29 +307,29 @@ func (qb *QueryBuilder[T]) ExecuteOne(ctx context.Context, repo Repository[T]) (
 // Example: count, err := qb.Count(ctx, repo)
 func (qb *QueryBuilder[T]) Count(ctx context.Context, repo Repository[T]) (int64, error) {
 	query := qb.Build()
-	
+
 	// Convert Query to QueryOptions (only conditions matter for count)
 	var options []QueryOption
-	
+
 	// Add conditions
 	for _, condition := range query.Conditions {
 		options = append(options, ConditionOption{Condition: condition})
 	}
-	
+
 	// Add joins if they affect the count
 	for _, join := range query.Joins {
 		options = append(options, JoinOption{Join: join})
 	}
-	
+
 	// Add group by if it affects the count
 	if len(query.Groups) > 0 {
 		options = append(options, GroupByOption{Fields: query.Groups})
 	}
-	
+
 	// Add having if it affects the count
 	for _, having := range query.Having {
 		options = append(options, HavingOption{Condition: having})
 	}
-	
+
 	return repo.Count(ctx, options...)
 }

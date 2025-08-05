@@ -176,7 +176,7 @@ const (
 	IndexTypeComposite  IndexType = "composite"
 )
 
-// RelationType represents different types of entity relationships
+// RelationType represents different types of entity rel
 type RelationType string
 
 const (
@@ -207,12 +207,12 @@ const (
 type ErrorType string
 
 const (
-	ErrorTypeValidation   ErrorType = "validation"
-	ErrorTypeNotFound     ErrorType = "not_found"
-	ErrorTypeDuplicate    ErrorType = "duplicate"
-	ErrorTypeConnection   ErrorType = "connection"
-	ErrorTypeTimeout      ErrorType = "timeout"
-	ErrorTypePermission   ErrorType = "permission"
+	ErrorTypeValidation      ErrorType = "validation"
+	ErrorTypeNotFound        ErrorType = "not_found"
+	ErrorTypeDuplicate       ErrorType = "duplicate"
+	ErrorTypeConnection      ErrorType = "connection"
+	ErrorTypeTimeout         ErrorType = "timeout"
+	ErrorTypePermission      ErrorType = "permission"
 	ErrorTypeConstraint      ErrorType = "constraint"
 	ErrorTypeTransaction     ErrorType = "transaction"
 	ErrorTypeUnsupported     ErrorType = "unsupported"
