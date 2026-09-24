@@ -50,4 +50,3 @@ type AfterFindHook interface {
 type ValidationHook interface {
 	Validate(ctx context.Context) error
 }
-

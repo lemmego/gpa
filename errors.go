@@ -1,6 +1,9 @@
 package gpa
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // =====================================
 // Error Handling
@@ -63,48 +66,36 @@ func NewErrorWithCode(errorType ErrorType, message string, code string) GPAError
 
 // IsNotFound checks if an error is a "not found" error
 func IsNotFound(err error) bool {
-	if gpaErr, ok := err.(GPAError); ok {
-		return gpaErr.Type == ErrorTypeNotFound
-	}
-	return false
+	return IsErrorType(err, ErrorTypeNotFound)
 }
 
 // IsDuplicate checks if an error is a "duplicate" error
 func IsDuplicate(err error) bool {
-	if gpaErr, ok := err.(GPAError); ok {
-		return gpaErr.Type == ErrorTypeDuplicate
-	}
-	return false
+	return IsErrorType(err, ErrorTypeDuplicate)
 }
 
 // IsValidation checks if an error is a "validation" error
 func IsValidation(err error) bool {
-	if gpaErr, ok := err.(GPAError); ok {
-		return gpaErr.Type == ErrorTypeValidation
-	}
-	return false
+	return IsErrorType(err, ErrorTypeValidation)
 }
 
 // IsConnection checks if an error is a "connection" error
 func IsConnection(err error) bool {
-	if gpaErr, ok := err.(GPAError); ok {
-		return gpaErr.Type == ErrorTypeConnection
-	}
-	return false
+	return IsErrorType(err, ErrorTypeConnection)
 }
 
 // IsTransaction checks if an error is a "transaction" error
 func IsTransaction(err error) bool {
-	if gpaErr, ok := err.(GPAError); ok {
-		return gpaErr.Type == ErrorTypeTransaction
-	}
-	return false
+	return IsErrorType(err, ErrorTypeTransaction)
 }
 
 // IsErrorType checks if an error is of a specific type
 func IsErrorType(err error, errorType ErrorType) bool {
-	if gpaErr, ok := err.(GPAError); ok {
-		return gpaErr.Type == errorType
+	var value GPAError
+	if errors.As(err, &value) {
+		return value.Type == errorType
 	}
-	return false
+
+	var pointer *GPAError
+	return errors.As(err, &pointer) && pointer != nil && pointer.Type == errorType
 }

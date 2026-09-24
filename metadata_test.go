@@ -29,10 +29,10 @@ func TestEntityInfo(t *testing.T) {
 		PrimaryKey: []string{"ID"},
 		Indexes: []IndexInfo{
 			{
-				Name:   "idx_users_email",
-				Fields: []string{"email"},
+				Name:     "idx_users_email",
+				Fields:   []string{"email"},
 				IsUnique: true,
-				Type:   IndexTypeUnique,
+				Type:     IndexTypeUnique,
 			},
 		},
 	}
@@ -88,10 +88,10 @@ func TestFieldInfo(t *testing.T) {
 
 func TestIndexInfo(t *testing.T) {
 	index := IndexInfo{
-		Name:   "idx_users_email_status",
-		Fields: []string{"email", "status"},
+		Name:     "idx_users_email_status",
+		Fields:   []string{"email", "status"},
 		IsUnique: false,
-		Type:   IndexTypeComposite,
+		Type:     IndexTypeComposite,
 	}
 
 	if index.Name != "idx_users_email_status" {
@@ -160,7 +160,6 @@ func TestManyToManyRelation(t *testing.T) {
 	}
 }
 
-
 func TestCompleteEntityInfo(t *testing.T) {
 	// Test a complete entity with all metadata
 	info := EntityInfo{
@@ -217,15 +216,15 @@ func TestCompleteEntityInfo(t *testing.T) {
 		},
 		Relations: []RelationInfo{
 			{
-				Name:          "User",
-				Type:          RelationManyToOne,
+				Name:         "User",
+				Type:         RelationManyToOne,
 				TargetEntity: "User",
 				ForeignKey:   "user_id",
 				References:   "user_id",
 			},
 			{
-				Name:          "Comments",
-				Type:          RelationOneToMany,
+				Name:         "Comments",
+				Type:         RelationOneToMany,
 				TargetEntity: "Comment",
 				ForeignKey:   "post_id",
 				References:   "id",
@@ -269,7 +268,7 @@ func TestCompleteEntityInfo(t *testing.T) {
 	if userRelation.Type != RelationManyToOne {
 		t.Errorf("Expected many-to-one relation, got %s", userRelation.Type)
 	}
-	
+
 	commentsRelation := info.Relations[1]
 	if commentsRelation.Type != RelationOneToMany {
 		t.Errorf("Expected one-to-many relation, got %s", commentsRelation.Type)

@@ -65,12 +65,12 @@ func (c CompositeCondition) String() string {
 	if len(c.Conditions) == 0 {
 		return ""
 	}
-	
+
 	var parts []string
 	for _, cond := range c.Conditions {
 		parts = append(parts, cond.String())
 	}
-	
+
 	return "(" + strings.Join(parts, " "+string(c.Logic)+" ") + ")"
 }
 
@@ -510,7 +510,7 @@ func CorrelatedSubQuery(field string, operator Operator, subQuery *Query, correl
 		Op:        OpEqual,
 		Val:       fmt.Sprintf("{{PARENT.%s}}", field), // Placeholder for parent field
 	})
-	
+
 	return WhereSubQuery(field, operator, subQuery)
 }
 

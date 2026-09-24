@@ -26,7 +26,7 @@ func TestBasicCondition(t *testing.T) {
 func TestCompositeCondition(t *testing.T) {
 	left := BasicCondition{FieldName: "age", Op: OpGreaterThan, Val: 18}
 	right := BasicCondition{FieldName: "status", Op: OpEqual, Val: "active"}
-	
+
 	condition := CompositeCondition{
 		Conditions: []Condition{left, right},
 		Logic:      LogicAnd,
@@ -48,7 +48,7 @@ func TestCompositeCondition(t *testing.T) {
 
 func TestConditionString(t *testing.T) {
 	condition := BasicCondition{FieldName: "deleted", Op: OpEqual, Val: true}
-	
+
 	expected := "deleted = ?"
 	if condition.String() != expected {
 		t.Errorf("Expected string '%s', got '%s'", expected, condition.String())
@@ -61,7 +61,7 @@ func TestSubQuery(t *testing.T) {
 			BasicCondition{FieldName: "user_id", Op: OpEqual, Val: "users.id"},
 		},
 	}
-	
+
 	subQuery := SubQuery{
 		Type:     SubQueryExists,
 		Query:    innerQuery,
@@ -87,7 +87,7 @@ func TestSubQueryCondition(t *testing.T) {
 			BasicCondition{FieldName: "active", Op: OpEqual, Val: true},
 		},
 	}
-	
+
 	subQuery := SubQuery{
 		Type:     SubQueryIn,
 		Query:    innerQuery,
@@ -95,7 +95,7 @@ func TestSubQueryCondition(t *testing.T) {
 		Operator: OpIn,
 		Args:     []interface{}{},
 	}
-	
+
 	condition := SubQueryCondition{
 		FieldName: "id",
 		SubQuery:  subQuery,
@@ -399,7 +399,7 @@ func TestWithSubQuery(t *testing.T) {
 			BasicCondition{FieldName: "user_id", Op: OpEqual, Val: "users.id"},
 		},
 	}
-	
+
 	option := WhereSubQuery("id", OpExists, innerQuery)
 	query := &Query{}
 	option.Apply(query)
@@ -420,7 +420,7 @@ func TestWithSubQuery(t *testing.T) {
 
 func TestMultipleQueryOptions(t *testing.T) {
 	query := &Query{}
-	
+
 	options := []QueryOption{
 		Where("status", OpEqual, "active"),
 		Where("age", OpGreaterThan, 18),
@@ -429,11 +429,11 @@ func TestMultipleQueryOptions(t *testing.T) {
 		Offset(5),
 		Select("id", "name", "email"),
 	}
-	
+
 	for _, option := range options {
 		option.Apply(query)
 	}
-	
+
 	if len(query.Conditions) != 2 {
 		t.Errorf("Expected 2 conditions, got %d", len(query.Conditions))
 	}

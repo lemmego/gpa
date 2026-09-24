@@ -2,6 +2,7 @@ package gpa
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 )
 
@@ -137,6 +138,29 @@ func TestIsErrorType(t *testing.T) {
 
 	if IsErrorType(errors.New("regular error"), ErrorTypeValidation) {
 		t.Error("Expected IsErrorType to return false for non-GPA error")
+	}
+}
+
+func TestIsErrorTypeWrappedAndPointerForms(t *testing.T) {
+	value := NewError(ErrorTypeNotFound, "not found")
+	pointer := &GPAError{Type: ErrorTypeDuplicate, Message: "duplicate"}
+
+	tests := []struct {
+		name      string
+		err       error
+		errorType ErrorType
+	}{
+		{"wrapped value", fmt.Errorf("outer: %w", value), ErrorTypeNotFound},
+		{"pointer", pointer, ErrorTypeDuplicate},
+		{"wrapped pointer", fmt.Errorf("outer: %w", error(pointer)), ErrorTypeDuplicate},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if !IsErrorType(test.err, test.errorType) {
+				t.Fatalf("expected %s for %T", test.errorType, test.err)
+			}
+		})
 	}
 }
 

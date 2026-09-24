@@ -78,7 +78,7 @@ func (u *TestUser) Validate(ctx context.Context) error {
 // TestEntityHookInterfaces verifies that TestUser implements all hook interfaces
 func TestEntityHookInterfaces(t *testing.T) {
 	var user interface{} = &TestUser{}
-	
+
 	// Test that TestUser implements all hook interfaces
 	if _, ok := user.(BeforeCreateHook); !ok {
 		t.Error("TestUser should implement BeforeCreateHook")
@@ -113,19 +113,19 @@ func TestEntityHooksExecution(t *testing.T) {
 		Email: "  JOHN@EXAMPLE.COM  ",
 		Name:  "John Doe",
 	}
-	
+
 	// Test BeforeCreate hook
 	if hook, ok := any(user).(BeforeCreateHook); ok {
 		err := hook.BeforeCreate(ctx)
 		if err != nil {
 			t.Errorf("BeforeCreate hook failed: %v", err)
 		}
-		
+
 		// Check that email was normalized
 		if user.Email != "john@example.com" {
 			t.Errorf("Expected email to be normalized to 'john@example.com', got: %s", user.Email)
 		}
-		
+
 		// Check that timestamps were set
 		if user.CreatedAt.IsZero() {
 			t.Error("CreatedAt should be set by BeforeCreate hook")
@@ -134,7 +134,7 @@ func TestEntityHooksExecution(t *testing.T) {
 			t.Error("UpdatedAt should be set by BeforeCreate hook")
 		}
 	}
-	
+
 	// Test AfterCreate hook
 	if hook, ok := any(user).(AfterCreateHook); ok {
 		err := hook.AfterCreate(ctx)
@@ -142,7 +142,7 @@ func TestEntityHooksExecution(t *testing.T) {
 			t.Errorf("AfterCreate hook failed: %v", err)
 		}
 	}
-	
+
 	// Test validation
 	if hook, ok := any(user).(ValidationHook); ok {
 		err := hook.Validate(ctx)
@@ -150,7 +150,7 @@ func TestEntityHooksExecution(t *testing.T) {
 			t.Errorf("Validation failed: %v", err)
 		}
 	}
-	
+
 	// Test validation failure
 	invalidUser := &TestUser{Name: "No Email"}
 	if hook, ok := any(invalidUser).(ValidationHook); ok {
@@ -164,10 +164,10 @@ func TestEntityHooksExecution(t *testing.T) {
 // TestHookTypeAssertions tests the type assertion pattern used in providers
 func TestHookTypeAssertions(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Test with entity that has hooks
 	userWithHooks := &TestUser{Email: "test@example.com", Name: "Test User"}
-	
+
 	// Test BeforeCreate assertion
 	if hook, ok := any(userWithHooks).(BeforeCreateHook); ok {
 		err := hook.BeforeCreate(ctx)
@@ -177,21 +177,21 @@ func TestHookTypeAssertions(t *testing.T) {
 	} else {
 		t.Error("Expected TestUser to implement BeforeCreateHook")
 	}
-	
+
 	// Test with entity that doesn't have hooks
 	type SimpleEntity struct {
 		ID   int    `json:"id"`
 		Name string `json:"name"`
 	}
-	
+
 	simpleEntity := &SimpleEntity{ID: 1, Name: "Simple"}
-	
+
 	// Test BeforeCreate assertion (should not implement)
 	if hook, ok := any(simpleEntity).(BeforeCreateHook); ok {
 		t.Error("SimpleEntity should not implement BeforeCreateHook")
 		_ = hook // avoid unused variable
 	}
-	
+
 	// Test AfterFind assertion (should not implement)
 	if hook, ok := any(simpleEntity).(AfterFindHook); ok {
 		t.Error("SimpleEntity should not implement AfterFindHook")
@@ -202,13 +202,13 @@ func TestHookTypeAssertions(t *testing.T) {
 // TestHookErrorHandling tests error handling in hooks
 func TestHookErrorHandling(t *testing.T) {
 	ctx := context.Background()
-	
+
 	// Test validation error
 	invalidUser := &TestUser{
 		Email: "invalid-email", // no @ symbol
 		Name:  "Test User",
 	}
-	
+
 	if hook, ok := any(invalidUser).(ValidationHook); ok {
 		err := hook.Validate(ctx)
 		if err == nil {
@@ -218,13 +218,13 @@ func TestHookErrorHandling(t *testing.T) {
 			t.Errorf("Expected email validation error, got: %v", err)
 		}
 	}
-	
+
 	// Test empty name validation
 	emptyNameUser := &TestUser{
 		Email: "test@example.com",
 		Name:  "", // empty name
 	}
-	
+
 	if hook, ok := any(emptyNameUser).(ValidationHook); ok {
 		err := hook.Validate(ctx)
 		if err == nil {
@@ -243,7 +243,7 @@ func TestHookChaining(t *testing.T) {
 		Email: "  MIXED@CASE.COM  ",
 		Name:  "Test User",
 	}
-	
+
 	// Simulate the provider calling hooks in sequence
 	// 1. BeforeCreate hook
 	if hook, ok := any(user).(BeforeCreateHook); ok {
@@ -252,7 +252,7 @@ func TestHookChaining(t *testing.T) {
 			t.Errorf("BeforeCreate hook failed: %v", err)
 		}
 	}
-	
+
 	// 2. Validation hook
 	if hook, ok := any(user).(ValidationHook); ok {
 		err := hook.Validate(ctx)
@@ -260,7 +260,7 @@ func TestHookChaining(t *testing.T) {
 			t.Errorf("Validation hook failed: %v", err)
 		}
 	}
-	
+
 	// 3. AfterCreate hook
 	if hook, ok := any(user).(AfterCreateHook); ok {
 		err := hook.AfterCreate(ctx)
@@ -268,12 +268,12 @@ func TestHookChaining(t *testing.T) {
 			t.Errorf("AfterCreate hook failed: %v", err)
 		}
 	}
-	
+
 	// Verify that the BeforeCreate hook normalized the email
 	if user.Email != "mixed@case.com" {
 		t.Errorf("Expected email to be normalized to 'mixed@case.com', got: %s", user.Email)
 	}
-	
+
 	// Verify that timestamps were set
 	if user.CreatedAt.IsZero() || user.UpdatedAt.IsZero() {
 		t.Error("Timestamps should be set by BeforeCreate hook")
